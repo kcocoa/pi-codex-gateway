@@ -109,7 +109,7 @@ export async function registerCyberWarningSupport(pi: ExtensionAPI): Promise<Cyb
 		);
 	};
 
-	pi.registerCommand("codex:settings", {
+	pi.registerCommand("codex:cyber", {
 		description: "Configure Codex cyber-warning handling",
 		handler: async (args, ctx) => {
 			const requestedAction = args.trim();

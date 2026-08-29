@@ -59,7 +59,7 @@ For active GPT models from either provider, the extension observes:
 - `response.metadata` or `codex.response.metadata` containing
   `openai_verification_recommendation: ["trusted_access_for_cyber"]`.
 
-Run `/codex:settings` to choose:
+Run `/codex:cyber` to choose:
 
 - `warn` (default): show the warning and continue;
 - `stop`: abort the current turn on the first warning;
@@ -67,14 +67,14 @@ Run `/codex:settings` to choose:
   second warned turn in the session.
 
 The command also accepts the policy directly, for example
-`/codex:settings stop`. The setting is stored in
+`/codex:cyber stop`. The setting is stored in
 `<Pi agent directory>/codex.json`.
 
 ## Fast service tier
 
-Run `/codex:fast default` or `/codex:fast priority` to select the service tier
-for subsequent requests from either Codex provider. Run `/codex:fast` without
-an argument to show the current selection. The setting is stored in
+Run `/codex:fast` to toggle between `default` and `priority`, or specify the
+value directly with `/codex:fast default` or `/codex:fast priority`. Argument
+completion lists both options. The setting is stored in
 `<Pi agent directory>/codex.json`.
 
 The extension adds the selected `service_tier` value to the existing Codex

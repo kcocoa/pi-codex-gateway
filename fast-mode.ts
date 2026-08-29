@@ -49,19 +49,27 @@ export async function registerCodexFastModeSupport(
 		: DEFAULT_SERVICE_TIER;
 
 	pi.registerCommand("codex:fast", {
-		description: "Set the Codex service tier: default or priority",
+		description: "Toggle or set the Codex service tier",
+		getArgumentCompletions: (prefix) => {
+			const query = prefix.trim().toLowerCase();
+			const tiers: CodexServiceTier[] = ["default", "priority"];
+			const matches = tiers.filter((tier) => tier.startsWith(query));
+			return matches.length > 0
+				? matches.map((tier) => ({ value: tier, label: tier }))
+				: null;
+		},
 		handler: async (args, ctx) => {
 			const requested = args.trim().toLowerCase();
-			if (!requested) {
-				ctx.ui.notify(`Codex service tier: ${serviceTier}`, "info");
-				return;
-			}
-			if (!isCodexServiceTier(requested)) {
+			if (requested && !isCodexServiceTier(requested)) {
 				ctx.ui.notify("Expected one of: default, priority", "error");
 				return;
 			}
 
-			serviceTier = requested;
+			serviceTier = isCodexServiceTier(requested)
+				? requested
+				: serviceTier === "default"
+					? "priority"
+					: "default";
 			await writeServiceTier(serviceTier);
 			ctx.ui.notify(`Codex service tier: ${serviceTier}`, "info");
 		},
