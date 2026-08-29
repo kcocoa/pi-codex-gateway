@@ -1,41 +1,54 @@
 import {
 	createProvider,
 	envApiKeyAuth,
+	type Api,
+	type Model,
 	type ProviderStreams,
 } from "@earendil-works/pi-ai";
 import { openAIResponsesApi } from "@earendil-works/pi-ai/compat";
+import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import {
 	createObservedFetch,
 	type CodexGatewayStreamEventHandler,
 } from "../codex-sse.ts";
-import { createCodexGatewayModels } from "./codex-gateway.models.ts";
 
 const PROVIDER_ID = "codex-gateway";
 const API_ID = "openai-responses";
 const DEFAULT_BASE_URL = "https://chatgpt.com/v1";
 
-function createResponsesApi(onStreamEvent?: CodexGatewayStreamEventHandler): ProviderStreams {
+function createResponsesApi(
+	onStreamEvent: CodexGatewayStreamEventHandler,
+): ProviderStreams {
 	const api = openAIResponsesApi();
-	if (!onStreamEvent) return api;
-
+	const withObservedFetch = (options?: { fetch?: typeof globalThis.fetch }) => ({
+		...(options ?? {}),
+		fetch: createObservedFetch(
+			options?.fetch ?? globalThis.fetch,
+			onStreamEvent,
+		),
+	});
 	return {
 		stream(model, context, options) {
-			return api.stream(model, context, {
-				...(options ?? {}),
-				fetch: createObservedFetch(options?.fetch ?? globalThis.fetch, onStreamEvent),
-			});
+			return api.stream(model, context, withObservedFetch(options));
 		},
 		streamSimple(model, context, options) {
-			return api.streamSimple(model, context, {
-				...(options ?? {}),
-				fetch: createObservedFetch(options?.fetch ?? globalThis.fetch, onStreamEvent),
-			});
+			return api.streamSimple(model, context, withObservedFetch(options));
 		},
 	};
 }
 
-export function codexGatewayProvider(onStreamEvent?: CodexGatewayStreamEventHandler) {
-	const models = createCodexGatewayModels(PROVIDER_ID, API_ID, DEFAULT_BASE_URL);
+export function codexGatewayProvider(
+	onStreamEvent: CodexGatewayStreamEventHandler,
+) {
+	const models = getBuiltinModels("openai-codex").map(
+		(model) =>
+			({
+				...model,
+				api: API_ID,
+				provider: PROVIDER_ID,
+				baseUrl: DEFAULT_BASE_URL,
+			}) as Model<Api>,
+	);
 	if (models.length === 0) {
 		throw new Error(
 			"The installed pi build has no openai-codex model catalog to mirror.",

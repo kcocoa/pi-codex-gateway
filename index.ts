@@ -45,13 +45,11 @@ export default async function codexExtension(pi: ExtensionAPI) {
 		if (!isCodexGpt(ctx)) return;
 
 		const payload = event.payload as Record<string, unknown>;
-		const tools = Array.isArray(payload.tools) ? payload.tools : [];
+		const tools = Array.isArray(payload.tools)
+			? (payload.tools as Array<{ type?: string }>)
+			: [];
 		const hasWebSearch = tools.some(
-			(tool) =>
-				tool &&
-				typeof tool === "object" &&
-				((tool as { type?: unknown }).type === "web_search" ||
-					(tool as { type?: unknown }).type === "web_search_preview"),
+			(tool) => tool.type === "web_search" || tool.type === "web_search_preview",
 		);
 
 		return {

@@ -24,23 +24,29 @@ function parseSseData(block: string): CodexGatewayStreamEvent | undefined {
 	}
 }
 
+function safeEmit(
+	onEvent: CodexGatewayStreamEventHandler,
+	event: CodexGatewayStreamEvent,
+): void {
+	try {
+		onEvent(event);
+	} catch {
+		// Signal observers must never break the provider stream.
+	}
+}
+
 export function createSseJsonDecoder(onEvent: CodexGatewayStreamEventHandler) {
 	let buffer = "";
 
 	const dispatch = (block: string): void => {
 		const event = parseSseData(block);
-		if (!event) return;
-		try {
-			onEvent(event);
-		} catch {
-			// Signal observers must never break the provider stream.
-		}
+		if (event) safeEmit(onEvent, event);
 	};
 
 	const drain = (): void => {
 		while (true) {
 			const separator = /\r?\n\r?\n/.exec(buffer);
-			if (!separator || separator.index === undefined) return;
+			if (!separator) return;
 			const block = buffer.slice(0, separator.index);
 			buffer = buffer.slice(separator.index + separator[0].length);
 			dispatch(block);
@@ -67,15 +73,11 @@ export function createObservedFetch(
 	return (async (input: RequestInfo | URL, init?: RequestInit) => {
 		const response = await baseFetch(input, init);
 		if (!response.ok) {
-			try {
-				onEvent({
-					type: CODEX_GATEWAY_ERROR_RESPONSE_EVENT,
-					status: response.status,
-					headers: Object.fromEntries(response.headers.entries()),
-				});
-			} catch {
-				// Signal observers must never break provider error handling.
-			}
+			safeEmit(onEvent, {
+				type: CODEX_GATEWAY_ERROR_RESPONSE_EVENT,
+				status: response.status,
+				headers: Object.fromEntries(response.headers.entries()),
+			});
 		}
 		if (
 			!response.body ||

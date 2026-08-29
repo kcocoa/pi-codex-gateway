@@ -146,15 +146,10 @@ export function registerQuotaDisplaySupport(
 
 	const setStatus = (ctx: ExtensionContext, text: string | undefined): void => {
 		if (!ctx.hasUI) return;
-		try {
-			ctx.ui.setStatus(STATUS_KEY, text);
-		} catch {
-			// Ignore stale session contexts during reload/session replacement.
-		}
+		ctx.ui.setStatus(STATUS_KEY, text);
 	};
 
 	const renderStatus = (ctx: ExtensionContext): void => {
-		if (!ctx.hasUI) return;
 		if (!isCodexGpt(ctx)) {
 			setStatus(ctx, undefined);
 			return;

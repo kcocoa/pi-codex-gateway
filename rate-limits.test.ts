@@ -56,6 +56,30 @@ describe("Codex rate limits", () => {
 		).toBeUndefined();
 	});
 
+	it("ignores bare zero-percent placeholder windows", () => {
+		// Gateways emit this when the secondary limit does not exist; it must
+		// not surface as "secondary:100%" in the footer.
+		const update = parseRateLimitHeaders({
+			"x-codex-primary-used-percent": "20",
+			"x-codex-primary-window-minutes": "300",
+			"x-codex-secondary-used-percent": "0",
+		});
+		expect(update?.snapshots[0].primary).toMatchObject({
+			usedPercent: 20,
+			windowMinutes: 300,
+		});
+		expect(update?.snapshots[0].secondary).toBeUndefined();
+		// A real 0%-used window with a duration is still shown.
+		const real = parseRateLimitHeaders({
+			"x-codex-secondary-used-percent": "0",
+			"x-codex-secondary-window-minutes": "10080",
+		});
+		expect(real?.snapshots[0].secondary).toMatchObject({
+			usedPercent: 0,
+			windowMinutes: 10080,
+		});
+	});
+
 	it("requires finite used percentages and complete credit booleans", () => {
 		const update = parseRateLimitHeaders({
 			"x-codex-primary-used-percent": "NaN",

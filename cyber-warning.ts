@@ -1,10 +1,8 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import {
-	getAgentDir,
-	type ExtensionAPI,
-	type ExtensionContext,
+import type {
+	ExtensionAPI,
+	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { readCodexConfig, updateCodexConfig } from "./codex-config.ts";
 import { codexProviderLabel, isCodexGpt } from "./codex-provider.ts";
 import type { CodexGatewayStreamEvent } from "./codex-sse.ts";
 import {
@@ -17,18 +15,13 @@ export type CyberWarningAction = "warn" | "stop" | "stop-after-repeat";
 
 const DEFAULT_ACTION: CyberWarningAction = "warn";
 const REPEATED_WARNING_LIMIT = 2;
-const CONFIG_PATH = join(getAgentDir(), "codex.json");
 
 const ACTION_LABELS: Record<CyberWarningAction, string> = {
 	warn: "Show warnings only",
 	stop: "Stop the current turn on the first warning",
 	"stop-after-repeat": `Stop on the ${REPEATED_WARNING_LIMIT}nd warned turn in this session`,
 };
-
-interface CodexConfig {
-	cyberWarningAction?: CyberWarningAction;
-	[key: string]: unknown;
-}
+const ACTIONS = Object.keys(ACTION_LABELS) as CyberWarningAction[];
 
 export interface CyberWarningSupport {
 	handleStreamEvent(event: CodexGatewayStreamEvent): void;
@@ -38,26 +31,8 @@ function isCyberWarningAction(value: unknown): value is CyberWarningAction {
 	return value === "warn" || value === "stop" || value === "stop-after-repeat";
 }
 
-async function readConfig(): Promise<CodexConfig> {
-	try {
-		const parsed = JSON.parse(await readFile(CONFIG_PATH, "utf8")) as unknown;
-		return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-			? parsed as CodexConfig
-			: {};
-	} catch {
-		return {};
-	}
-}
-
-async function writeAction(action: CyberWarningAction): Promise<void> {
-	const config = await readConfig();
-	config.cyberWarningAction = action;
-	await mkdir(dirname(CONFIG_PATH), { recursive: true });
-	await writeFile(CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`, "utf8");
-}
-
 export async function registerCyberWarningSupport(pi: ExtensionAPI): Promise<CyberWarningSupport> {
-	const config = await readConfig();
+	const config = await readCodexConfig();
 	let action = isCyberWarningAction(config.cyberWarningAction) ? config.cyberWarningAction : DEFAULT_ACTION;
 	let activeContext: ExtensionContext | undefined;
 	let requestedModel: string | undefined;
@@ -121,13 +96,13 @@ export async function registerCyberWarningSupport(pi: ExtensionAPI): Promise<Cyb
 				}
 				nextAction = requestedAction;
 			} else if (ctx.hasUI) {
-				const labels = (Object.keys(ACTION_LABELS) as CyberWarningAction[]).map(
+				const labels = ACTIONS.map(
 					(value) => `${value === action ? "●" : "○"} ${ACTION_LABELS[value]}`,
 				);
 				const selected = await ctx.ui.select("Codex cyber warnings", labels);
 				const index = selected ? labels.indexOf(selected) : -1;
 				if (index < 0) return;
-				nextAction = (Object.keys(ACTION_LABELS) as CyberWarningAction[])[index];
+				nextAction = ACTIONS[index];
 			} else {
 				ctx.ui.notify(`Codex cyber-warning action: ${action}`, "info");
 				return;
@@ -135,7 +110,7 @@ export async function registerCyberWarningSupport(pi: ExtensionAPI): Promise<Cyb
 
 			action = nextAction;
 			warnedTurns = 0;
-			await writeAction(action);
+			await updateCodexConfig("cyberWarningAction", action);
 			ctx.ui.notify(`Codex cyber-warning action: ${action}`, "info");
 		},
 	});
@@ -159,8 +134,9 @@ export async function registerCyberWarningSupport(pi: ExtensionAPI): Promise<Cyb
 
 	return {
 		handleStreamEvent(event) {
+			// activeContext is only ever assigned from a Codex GPT context.
 			const ctx = activeContext;
-			if (!ctx || !isCodexGpt(ctx)) return;
+			if (!ctx) return;
 
 			const serverModel = getServerModelFromStreamEvent(event);
 			if (serverModel) handleServerModel(ctx, serverModel);

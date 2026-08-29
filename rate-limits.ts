@@ -83,12 +83,12 @@ function parseHeaderWindow(
 	if (usedPercent === undefined) return undefined;
 	const windowMinutes = integer(headers.get(windowMinutesHeader));
 	const resetsAt = integer(headers.get(resetAtHeader));
-	if (
-		usedPercent === 0 &&
-		(!windowMinutes || windowMinutes === 0) &&
-		resetsAt === undefined
-	)
+	// Some gateways send a bare 0% placeholder when the window does not
+	// exist (no duration, no reset time). Filter it instead of rendering
+	// a meaningless "secondary:100%".
+	if (usedPercent === 0 && !windowMinutes && resetsAt === undefined) {
 		return undefined;
+	}
 	return { usedPercent, windowMinutes, resetsAt };
 }
 
@@ -200,15 +200,6 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 		: undefined;
 }
 
-function asStringRecord(value: unknown): Record<string, string> | undefined {
-	const record = asRecord(value);
-	if (!record) return undefined;
-	const entries = Object.entries(record).filter(
-		(entry): entry is [string, string] => typeof entry[1] === "string",
-	);
-	return Object.fromEntries(entries);
-}
-
 function parseEventWindow(value: unknown): RateLimitWindow | undefined {
 	const window = asRecord(value);
 	if (!window) return undefined;
@@ -241,8 +232,11 @@ export function parseRateLimitStreamEvent(
 	event: CodexGatewayStreamEvent,
 ): RateLimitUpdate | undefined {
 	if (event.type === CODEX_GATEWAY_ERROR_RESPONSE_EVENT) {
-		const headers = asStringRecord(event.headers);
-		return headers ? parseRateLimitHeaders(headers) : undefined;
+		// These events are built by createObservedFetch with string header values.
+		const headers = asRecord(event.headers);
+		return headers
+			? parseRateLimitHeaders(headers as Record<string, string>)
+			: undefined;
 	}
 	if (event.type !== "codex.rate_limits") return undefined;
 	const limits = asRecord(event.rate_limits);

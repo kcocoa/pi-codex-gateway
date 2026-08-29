@@ -245,10 +245,6 @@ async function callOpenAICodexImageGeneration(
 	if (outputFormatFor(params) !== "png" || params.output_compression !== undefined) {
 		throw new Error("OpenAI Codex image generation currently supports PNG output only");
 	}
-	if (inputImages.length > OPENAI_CODEX_MAX_IMAGES) {
-		throw new Error(`OpenAI Codex image editing supports at most ${OPENAI_CODEX_MAX_IMAGES} input images`);
-	}
-
 	const editing = params.action === "edit" || inputImages.length > 0;
 	if (params.action === "edit" && inputImages.length === 0) {
 		throw new Error("OpenAI Codex image editing requires at least one input image");

@@ -40,6 +40,7 @@ the extension is loaded.
 ## Layout
 
 - `index.ts`: registration and provider-scoped capabilities
+- `codex-config.ts`: shared `codex.json` preference storage
 - `codex-provider.ts`: shared provider matching
 - `codex-sse.ts`: transparent observation of optional SSE events
 - `codex-signals.ts`: server-model and cyber recommendation parsing
