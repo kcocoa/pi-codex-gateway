@@ -1,6 +1,7 @@
 # Codex providers extension
 
-User-level Pi extension for both Codex providers:
+User-level [Pi](https://github.com/earendil-works/pi) extension for both Codex
+providers:
 
 - `codex-gateway`: API-key provider for standard OpenAI Responses gateways.
 - `openai-codex`: augments Pi's built-in ChatGPT OAuth provider.
@@ -125,3 +126,8 @@ project. Existing files are not overwritten unless `overwrite: true` is given.
 
 The Skill is discovered at startup or `/reload`; after switching to or from a
 supported provider, run `/reload` to refresh the available Skill list.
+
+## License
+
+MIT — see [LICENSE](LICENSE). The vendored `codex-skills/imagegen/` skill is
+OpenAI's and keeps its own Apache-2.0 [license](codex-skills/imagegen/LICENSE.txt).
