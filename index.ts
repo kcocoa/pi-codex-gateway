@@ -1,6 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { registerCyberWarningSupport } from "./cyber-warning.ts";
 import {
 	isCodexGatewayGpt,
 	registerImageGeneration,
@@ -11,8 +12,9 @@ import { codexGatewayProvider } from "./providers/codex-gateway.ts";
 const baseDir = dirname(fileURLToPath(import.meta.url));
 const imageGenerationSkill = join(baseDir, "codex-skills", "imagegen", "SKILL.md");
 
-export default function codexGatewayExtension(pi: ExtensionAPI) {
-	pi.registerProvider(codexGatewayProvider());
+export default async function codexGatewayExtension(pi: ExtensionAPI) {
+	const cyberWarnings = await registerCyberWarningSupport(pi);
+	pi.registerProvider(codexGatewayProvider(cyberWarnings.handleStreamEvent));
 	registerImageGeneration(pi);
 
 	// The imagegen skill and image_gen tool are available only for this provider.

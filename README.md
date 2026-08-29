@@ -29,6 +29,8 @@ The built-in `openai-codex` provider is hardwired to ChatGPT account OAuth + Web
 ## Layout
 
 - `index.ts`: provider registration, provider-scoped Skill discovery, and tool activation
+- `cyber-warning.ts`: configurable cyber-warning policy and persistent user setting
+- `codex-sse.ts`: transparent observation of optional provider-specific SSE events
 - `image-generation.ts`: native Responses `image_generation` tool wrapper and session-scoped output persistence
 - `providers/codex-gateway.ts`: provider composition (built-in API + auth)
 - `providers/codex-gateway.models.ts`: mirror of the openai-codex catalog (api → `openai-responses`)
@@ -51,6 +53,28 @@ The provider converts the API key to `Authorization: Bearer <key>`.
 ## Model catalog notes
 
 The mirror maps every built-in codex model to the `openai-responses` API. Costs, context windows, thinking level maps, and `compat` flags (`supportsToolSearch`, `supportsOpenAIGrammarTools`, ...) are inherited unchanged from the official pi catalog.
+
+## Cyber warnings
+
+For active `codex-gateway` GPT models, the extension observes optional Codex safety
+signals without changing normal Responses parsing:
+
+- an `openai-model` / `x-openai-model` value that differs from the requested model;
+- `response.metadata` or `codex.response.metadata` containing
+  `openai_verification_recommendation: ["trusted_access_for_cyber"]`.
+
+Run `/codex-gateway:settings` to select one of these persistent policies:
+
+- `warn` (default): display the warning and continue;
+- `stop`: display the first warning and abort the current turn;
+- `stop-after-repeat`: continue after the first warned turn in a session, then abort
+  the second warned turn.
+
+The command also accepts the policy directly, for example
+`/codex-gateway:settings stop`. The setting is stored in
+`<Pi agent directory>/codex-gateway.json`. Missing headers or stream metadata are
+silently ignored. When a turn is stopped, switch model or authentication before
+retrying.
 
 ## Native image generation
 
