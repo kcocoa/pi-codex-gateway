@@ -79,8 +79,8 @@ completion lists both options. The setting is stored in
 
 The extension adds the selected `service_tier` value to the existing Codex
 request payload. It does not add a network request or change Pi's cost
-calculation. For active GPT models, the current tier is shown in the footer
-status bar as `fast:default` or `fast:priority`.
+calculation. When priority is active for a GPT model, the footer status bar
+shows `fast⚡`.
 
 ## Quota display
 

@@ -11,7 +11,8 @@ export type CodexServiceTier = "default" | "priority";
 
 const CONFIG_PATH = join(getAgentDir(), "codex.json");
 const DEFAULT_SERVICE_TIER: CodexServiceTier = "default";
-const STATUS_KEY = "codex-fast";
+// Sort after the quota status in Pi's footer.
+const STATUS_KEY = "codex-status-fast";
 
 interface CodexConfig {
 	serviceTier?: CodexServiceTier;
@@ -72,17 +73,11 @@ export async function registerCodexFastModeSupport(
 	};
 
 	const renderStatus = (ctx: ExtensionContext): void => {
-		if (!ctx.hasUI) return;
-		if (!isCodexGpt(ctx)) {
+		if (!isCodexGpt(ctx) || serviceTier !== "priority") {
 			setStatus(ctx, undefined);
 			return;
 		}
-		setStatus(
-			ctx,
-			formatFastTierStatus(serviceTier, (color, text) =>
-				ctx.ui.theme.fg(color, text),
-			),
-		);
+		setStatus(ctx, "fast⚡");
 	};
 
 	pi.registerCommand("codex:fast", {
