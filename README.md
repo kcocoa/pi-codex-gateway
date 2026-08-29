@@ -5,8 +5,8 @@ User-level Pi extension for both Codex providers:
 - `codex-gateway`: API-key provider for standard OpenAI Responses gateways.
 - `openai-codex`: augments Pi's built-in ChatGPT OAuth provider.
 
-Shared features include hosted web search, image generation, cyber warnings, and
-quota display.
+Shared features include hosted web search, image generation, cyber warnings,
+service-tier selection, and quota display.
 
 ## Provider behavior
 
@@ -44,6 +44,7 @@ the extension is loaded.
 - `codex-sse.ts`: transparent observation of optional SSE events
 - `codex-signals.ts`: server-model and cyber recommendation parsing
 - `cyber-warning.ts`: warning policy and persistent setting
+- `fast-mode.ts`: persistent `/codex:fast` command
 - `rate-limits.ts`: quota header/event parsing
 - `quota-display.ts`: footer status and detailed quota command
 - `image-generation.ts`: provider-native image generation and persistence
@@ -68,6 +69,17 @@ Run `/codex:settings` to choose:
 The command also accepts the policy directly, for example
 `/codex:settings stop`. The setting is stored in
 `<Pi agent directory>/codex.json`.
+
+## Fast service tier
+
+Run `/codex:fast default` or `/codex:fast priority` to select the service tier
+for subsequent requests from either Codex provider. Run `/codex:fast` without
+an argument to show the current selection. The setting is stored in
+`<Pi agent directory>/codex.json`.
+
+The extension adds the selected `service_tier` value to the existing Codex
+request payload. It does not add a network request or change Pi's cost
+calculation.
 
 ## Quota display
 
