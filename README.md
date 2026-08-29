@@ -32,6 +32,8 @@ The built-in `openai-codex` provider is hardwired to ChatGPT account OAuth + Web
 - `cyber-warning.ts`: configurable cyber-warning policy and persistent user setting
 - `codex-sse.ts`: transparent observation of optional provider-specific SSE events
 - `image-generation.ts`: native Responses `image_generation` tool wrapper and session-scoped output persistence
+- `rate-limits.ts`: optional Codex quota header/event parsing
+- `quota-display.ts`: footer status and detailed quota command
 - `providers/codex-gateway.ts`: provider composition (built-in API + auth)
 - `providers/codex-gateway.models.ts`: mirror of the openai-codex catalog (api → `openai-responses`)
 
@@ -75,6 +77,20 @@ The command also accepts the policy directly, for example
 `<Pi agent directory>/codex-gateway.json`. Missing headers or stream metadata are
 silently ignored. When a turn is stopped, switch model or authentication before
 retrying.
+
+## Quota display
+
+When the gateway exposes Codex quota information, the extension parses it from:
+
+- `x-<limit>-primary-*` and `x-<limit>-secondary-*` response-header families;
+- `x-codex-credits-*`, `x-codex-active-limit`, promo, and reached-type headers;
+- optional `codex.rate_limits` stream events.
+
+The selected/default limit is shown as remaining percentages in Pi's footer, for
+example `5h:82% 7d:54%`. Run `/codex-gateway:usage` for all observed limits,
+reset times, plan type, credits, and server messages. The extension does not make
+an extra quota request and silently shows nothing until the gateway supplies this
+information.
 
 ## Native image generation
 

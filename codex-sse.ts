@@ -1,5 +1,10 @@
 export type CodexGatewayStreamEvent = Record<string, unknown>;
-export type CodexGatewayStreamEventHandler = (event: CodexGatewayStreamEvent) => void;
+export type CodexGatewayStreamEventHandler = (
+	event: CodexGatewayStreamEvent,
+) => void;
+
+export const CODEX_GATEWAY_ERROR_RESPONSE_EVENT =
+	"codex.gateway.error_response";
 
 function parseSseData(block: string): CodexGatewayStreamEvent | undefined {
 	const data = block
@@ -12,7 +17,7 @@ function parseSseData(block: string): CodexGatewayStreamEvent | undefined {
 	try {
 		const event = JSON.parse(data) as unknown;
 		return event && typeof event === "object" && !Array.isArray(event)
-			? event as CodexGatewayStreamEvent
+			? (event as CodexGatewayStreamEvent)
 			: undefined;
 	} catch {
 		return undefined;
@@ -61,7 +66,24 @@ export function createObservedFetch(
 ): typeof globalThis.fetch {
 	return (async (input: RequestInfo | URL, init?: RequestInit) => {
 		const response = await baseFetch(input, init);
-		if (!response.body || !response.headers.get("content-type")?.toLowerCase().includes("text/event-stream")) {
+		if (!response.ok) {
+			try {
+				onEvent({
+					type: CODEX_GATEWAY_ERROR_RESPONSE_EVENT,
+					status: response.status,
+					headers: Object.fromEntries(response.headers.entries()),
+				});
+			} catch {
+				// Signal observers must never break provider error handling.
+			}
+		}
+		if (
+			!response.body ||
+			!response.headers
+				.get("content-type")
+				?.toLowerCase()
+				.includes("text/event-stream")
+		) {
 			return response;
 		}
 
