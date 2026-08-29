@@ -94,6 +94,58 @@ describe("Codex quota display", () => {
 		]);
 	});
 
+	it("ignores credit-only active buckets in the compact footer", async () => {
+		const harness = createHarness();
+		registerQuotaDisplaySupport(harness.pi);
+		const { ctx, setStatus } = createContext("openai-codex");
+		await harness.emit(
+			"after_provider_response",
+			{
+				type: "after_provider_response",
+				status: 200,
+				headers: {
+					"x-codex-primary-used-percent": "20",
+					"x-codex-primary-window-minutes": "300",
+					"x-codex-active-limit": "premium",
+					"x-codex-credits-has-credits": "false",
+					"x-codex-credits-unlimited": "false",
+					"x-codex-credits-balance": "0",
+				},
+			},
+			ctx,
+		);
+
+		expect(setStatus.mock.calls.at(-1)).toEqual([
+			"codex-quota",
+			"5h:80%",
+		]);
+	});
+
+	it("hides credit balances when no rate-limit windows are available", async () => {
+		const harness = createHarness();
+		registerQuotaDisplaySupport(harness.pi);
+		const { ctx, setStatus } = createContext("openai-codex");
+		await harness.emit(
+			"after_provider_response",
+			{
+				type: "after_provider_response",
+				status: 200,
+				headers: {
+					"x-codex-active-limit": "premium",
+					"x-codex-credits-has-credits": "false",
+					"x-codex-credits-unlimited": "false",
+					"x-codex-credits-balance": "0",
+				},
+			},
+			ctx,
+		);
+
+		expect(setStatus.mock.calls.at(-1)).toEqual([
+			"codex-quota",
+			undefined,
+		]);
+	});
+
 	it("accepts optional codex.rate_limits stream events", async () => {
 		const harness = createHarness();
 		const support = registerQuotaDisplaySupport(harness.pi);

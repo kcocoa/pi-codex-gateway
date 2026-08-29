@@ -79,15 +79,13 @@ export function registerQuotaDisplaySupport(
 	};
 
 	const selectSnapshot = (): RateLimitSnapshot | undefined => {
-		if (activeLimitId && snapshots.has(activeLimitId))
-			return snapshots.get(activeLimitId);
-		return (
-			snapshots.get("codex") ??
-			[...snapshots.values()].find(
-				(snapshot) =>
-					snapshot.primary || snapshot.secondary || snapshot.credits,
-			)
-		);
+		const hasWindows = (snapshot: RateLimitSnapshot | undefined): boolean =>
+			snapshot?.primary !== undefined || snapshot?.secondary !== undefined;
+		const active = activeLimitId ? snapshots.get(activeLimitId) : undefined;
+		if (hasWindows(active)) return active;
+		const defaultSnapshot = snapshots.get("codex");
+		if (hasWindows(defaultSnapshot)) return defaultSnapshot;
+		return [...snapshots.values()].find(hasWindows);
 	};
 
 	const setStatus = (ctx: ExtensionContext, text: string | undefined): void => {
@@ -123,24 +121,11 @@ export function registerQuotaDisplaySupport(
 					ctx.ui.theme.fg(severityColor(window), remaining),
 			);
 		}
-		if (parts.length === 0 && snapshot.credits) {
-			const credits = snapshot.credits.unlimited
-				? "∞"
-				: (snapshot.credits.balance ??
-					(snapshot.credits.hasCredits ? "available" : "none"));
-			parts.push(
-				ctx.ui.theme.fg("dim", "credits:") + ctx.ui.theme.fg("dim", credits),
-			);
-		}
 		if (parts.length === 0) {
 			setStatus(ctx, undefined);
 			return;
 		}
-		const prefix =
-			snapshot.limitId === "codex"
-				? ""
-				: `${snapshot.limitName ?? snapshot.limitId} `;
-		setStatus(ctx, `${prefix}${parts.join(" ")}`);
+		setStatus(ctx, parts.join(" "));
 	};
 
 	const applyUpdate = (
