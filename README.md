@@ -75,13 +75,19 @@ For either provider, quota data is parsed from normal response headers and
 optional stream events:
 
 - `x-<limit>-primary-*` and `x-<limit>-secondary-*`;
-- `x-codex-credits-*`, `x-codex-active-limit`, promo, and reached-type headers;
+- `x-codex-plan-type`, `x-codex-credits-*`, `x-codex-active-limit`, promo,
+  and reached-type headers;
 - `codex.rate_limits` events.
 
-The footer shows remaining percentages such as `5h:82% 7d:54%`. Run
-`/codex:usage` for all observed limits, reset times, plan type, credits, and
-server messages. No separate quota request is made; the display remains empty
-until a provider supplies quota data.
+The footer shows the normalized subscription type, remaining percentages, and
+compact reset countdowns, for example
+`pro5x 5h:82%↺3h44m 7d:54%↺5d17h`. Reset countdowns contain at most two time
+units. Observed plan types are normalized to `plus`, `pro5x`, `pro20x`,
+`business`, or `business pro` when recognized.
+
+Run `/codex:usage` for all observed limits, absolute reset times, plan type,
+credits, and server messages. No separate quota request is made; the display
+remains empty until a provider supplies quota data.
 
 ## Hosted web search
 

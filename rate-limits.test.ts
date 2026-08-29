@@ -19,6 +19,7 @@ describe("Codex rate limits", () => {
 			"x-codex-credits-has-credits": "true",
 			"x-codex-credits-unlimited": "0",
 			"x-codex-credits-balance": "12.50",
+			"x-codex-plan-type": "prolite",
 			"x-codex-other-primary-used-percent": "75",
 			"x-codex-other-primary-window-minutes": "60",
 			"x-codex-other-limit-name": "Code review",
@@ -40,6 +41,7 @@ describe("Codex rate limits", () => {
 				resetsAt: 1788548400,
 			},
 			credits: { hasCredits: true, unlimited: false, balance: "12.50" },
+			planType: "prolite",
 		});
 		expect(update?.snapshots[1]).toMatchObject({
 			limitId: "codex_other",

@@ -1,5 +1,9 @@
 import { describe, expect, it, mock } from "bun:test";
-import { registerQuotaDisplaySupport } from "./quota-display.ts";
+import {
+	formatResetCountdown,
+	formatSubscriptionType,
+	registerQuotaDisplaySupport,
+} from "./quota-display.ts";
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 
@@ -45,6 +49,33 @@ function createContext(provider = "codex-gateway") {
 }
 
 describe("Codex quota display", () => {
+	it("normalizes supported subscription types", () => {
+		expect(formatSubscriptionType("plus")).toBe("plus");
+		expect(formatSubscriptionType("prolite")).toBe("pro5x");
+		expect(formatSubscriptionType("pro")).toBe("pro20x");
+		expect(formatSubscriptionType("team")).toBe("business");
+		expect(formatSubscriptionType("business")).toBe("business");
+		expect(formatSubscriptionType("self_serve_business_prolite")).toBe(
+			"business pro",
+		);
+	});
+
+	it("formats reset countdowns with at most two units", () => {
+		const now = Date.UTC(2026, 7, 29, 12, 0, 0);
+		expect(
+			formatResetCountdown(
+				(now + (5 * 86_400 + 17 * 3_600 + 42 * 60) * 1000) / 1000,
+				now,
+			),
+		).toBe("5d17h");
+		expect(
+			formatResetCountdown(
+				(now + (3 * 3_600 + 44 * 60 + 20) * 1000) / 1000,
+				now,
+			),
+		).toBe("3h44m");
+	});
+
 	it("renders remaining quota from response headers in the footer", async () => {
 		const harness = createHarness();
 		registerQuotaDisplaySupport(harness.pi);
@@ -91,6 +122,39 @@ describe("Codex quota display", () => {
 		expect(setStatus.mock.calls.at(-1)).toEqual([
 			"codex-quota",
 			"5h:75%",
+		]);
+	});
+
+	it("shows the subscription and compact reset countdowns", async () => {
+		const harness = createHarness();
+		registerQuotaDisplaySupport(harness.pi);
+		const { ctx, setStatus } = createContext("openai-codex");
+		const now = Math.ceil(Date.now() / 1000);
+		await harness.emit(
+			"after_provider_response",
+			{
+				type: "after_provider_response",
+				status: 200,
+				headers: {
+					"x-codex-plan-type": "prolite",
+					"x-codex-primary-used-percent": "25",
+					"x-codex-primary-window-minutes": "300",
+					"x-codex-primary-reset-at": String(
+						now + 3 * 3_600 + 44 * 60 + 20,
+					),
+					"x-codex-secondary-used-percent": "50",
+					"x-codex-secondary-window-minutes": "10080",
+					"x-codex-secondary-reset-at": String(
+						now + 5 * 86_400 + 17 * 3_600 + 42 * 60,
+					),
+				},
+			},
+			ctx,
+		);
+
+		expect(setStatus.mock.calls.at(-1)).toEqual([
+			"codex-quota",
+			"pro5x 5h:75%↺3h44m 7d:50%↺5d17h",
 		]);
 	});
 

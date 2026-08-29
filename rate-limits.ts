@@ -109,6 +109,7 @@ function parseHeaderSnapshot(
 	headers: Map<string, string>,
 	limitId: string,
 	credits: CreditsSnapshot | undefined,
+	planType: string | undefined,
 ): RateLimitSnapshot {
 	const prefix = headerPrefix(limitId);
 	return {
@@ -127,6 +128,7 @@ function parseHeaderSnapshot(
 			`${prefix}-secondary-reset-at`,
 		),
 		credits,
+		planType,
 	};
 }
 
@@ -135,7 +137,8 @@ function hasSnapshotData(snapshot: RateLimitSnapshot): boolean {
 		snapshot.primary !== undefined ||
 		snapshot.secondary !== undefined ||
 		snapshot.credits !== undefined ||
-		snapshot.limitName !== undefined
+		snapshot.limitName !== undefined ||
+		snapshot.planType !== undefined
 	);
 }
 
@@ -154,6 +157,7 @@ export function parseRateLimitHeaders(
 		}
 		if (
 			name === "x-codex-active-limit" ||
+			name === "x-codex-plan-type" ||
 			name === "x-codex-promo-message" ||
 			name === "x-codex-rate-limit-reached-type" ||
 			name.startsWith("x-codex-credits-") ||
@@ -170,9 +174,12 @@ export function parseRateLimitHeaders(
 		limitIds.add("codex");
 
 	const credits = parseCredits(normalized);
+	const planType = trimmed(normalized.get("x-codex-plan-type"));
 	const snapshots = [...limitIds]
 		.sort()
-		.map((limitId) => parseHeaderSnapshot(normalized, limitId, credits))
+		.map((limitId) =>
+			parseHeaderSnapshot(normalized, limitId, credits, planType),
+		)
 		.filter(
 			(snapshot) => snapshot.limitId === "codex" || hasSnapshotData(snapshot),
 		);

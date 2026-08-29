@@ -43,6 +43,60 @@ function formatPercent(value: number): string {
 	return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
+export function formatSubscriptionType(
+	planType: string | undefined,
+): string | undefined {
+	const raw = planType?.trim();
+	if (!raw) return undefined;
+	const normalized = raw.toLowerCase().replaceAll(/[-\s]+/g, "_");
+	switch (normalized) {
+		case "plus":
+			return "plus";
+		case "prolite":
+		case "pro_lite":
+		case "pro5x":
+		case "pro_5x":
+			return "pro5x";
+		case "pro":
+		case "pro20x":
+		case "pro_20x":
+			return "pro20x";
+		case "team":
+		case "business":
+			return "business";
+		case "self_serve_business_prolite":
+		case "self_serve_business_usage_based":
+		case "business_pro":
+		case "businesspro":
+			return "business pro";
+		default:
+			return undefined;
+	}
+}
+
+export function formatResetCountdown(
+	resetsAt: number | undefined,
+	nowMs = Date.now(),
+): string | undefined {
+	if (resetsAt === undefined || !Number.isFinite(resetsAt) || resetsAt <= 0)
+		return undefined;
+	let remaining = Math.ceil(resetsAt - nowMs / 1000);
+	if (remaining <= 0) return "now";
+	const parts: string[] = [];
+	for (const [suffix, seconds] of [
+		["d", 86_400],
+		["h", 3_600],
+		["m", 60],
+		["s", 1],
+	] as const) {
+		const value = Math.floor(remaining / seconds);
+		remaining %= seconds;
+		if (value > 0) parts.push(`${value}${suffix}`);
+		if (parts.length === 2) break;
+	}
+	return parts.length > 0 ? parts.join("") : "now";
+}
+
 function formatReset(resetsAt: number | undefined): string {
 	if (resetsAt === undefined) return "unknown";
 	return new Date(resetsAt * 1000).toLocaleString();
@@ -66,6 +120,7 @@ export function registerQuotaDisplaySupport(
 	const snapshots = new Map<string, RateLimitSnapshot>();
 	let activeContext: ExtensionContext | undefined;
 	let activeLimitId: string | undefined;
+	let planType: string | undefined;
 	let promoMessage: string | undefined;
 	let rateLimitReachedType: string | undefined;
 	let lastUpdatedAt: number | undefined;
@@ -73,6 +128,7 @@ export function registerQuotaDisplaySupport(
 	const clearState = (): void => {
 		snapshots.clear();
 		activeLimitId = undefined;
+		planType = undefined;
 		promoMessage = undefined;
 		rateLimitReachedType = undefined;
 		lastUpdatedAt = undefined;
@@ -104,21 +160,21 @@ export function registerQuotaDisplaySupport(
 			return;
 		}
 		const snapshot = selectSnapshot();
-		if (!snapshot) {
-			setStatus(ctx, undefined);
-			return;
-		}
 		const parts: string[] = [];
+		const subscription = formatSubscriptionType(planType ?? snapshot?.planType);
+		if (subscription) parts.push(ctx.ui.theme.fg("dim", subscription));
 		for (const [fallback, window] of [
-			["primary", snapshot.primary],
-			["secondary", snapshot.secondary],
+			["primary", snapshot?.primary],
+			["secondary", snapshot?.secondary],
 		] as const) {
 			if (!window) continue;
 			const label = formatWindowLabel(window, fallback);
 			const remaining = `${formatPercent(remainingPercent(window))}%`;
+			const reset = formatResetCountdown(window.resetsAt);
 			parts.push(
 				ctx.ui.theme.fg("dim", `${label}:`) +
-					ctx.ui.theme.fg(severityColor(window), remaining),
+					ctx.ui.theme.fg(severityColor(window), remaining) +
+					(reset ? ctx.ui.theme.fg("dim", `↺${reset}`) : ""),
 			);
 		}
 		if (parts.length === 0) {
@@ -138,6 +194,9 @@ export function registerQuotaDisplaySupport(
 			snapshots.set(snapshot.limitId, mergeSnapshot(previous, snapshot));
 		}
 		activeLimitId = update.activeLimitId ?? activeLimitId;
+		planType =
+			update.snapshots.find((snapshot) => snapshot.planType)?.planType ??
+			planType;
 		promoMessage = update.promoMessage ?? promoMessage;
 		rateLimitReachedType = update.rateLimitReachedType ?? rateLimitReachedType;
 		lastUpdatedAt = now;
@@ -152,13 +211,14 @@ export function registerQuotaDisplaySupport(
 		const lines = [
 			`Codex quota${lastUpdatedAt ? ` (updated ${new Date(lastUpdatedAt).toLocaleString()})` : ""}`,
 		];
+		const subscription = formatSubscriptionType(planType);
+		if (subscription) lines.push(`Plan: ${subscription}`);
 		for (const snapshot of [...snapshots.values()].sort((a, b) =>
 			a.limitId.localeCompare(b.limitId),
 		)) {
 			const active = snapshot.limitId === activeLimitId ? " [active]" : "";
 			const name = snapshot.limitName ? ` — ${snapshot.limitName}` : "";
 			lines.push(`${snapshot.limitId}${name}${active}`);
-			if (snapshot.planType) lines.push(`  Plan: ${snapshot.planType}`);
 			const primary = formatWindowDetails("Primary", snapshot.primary);
 			const secondary = formatWindowDetails("Secondary", snapshot.secondary);
 			if (primary) lines.push(primary);
@@ -197,6 +257,7 @@ export function registerQuotaDisplaySupport(
 	});
 	pi.on("turn_start", (_event, ctx) => {
 		activeContext = isCodexGpt(ctx) ? ctx : undefined;
+		renderStatus(ctx);
 	});
 	pi.on("model_select", (_event, ctx) => {
 		clearState();
