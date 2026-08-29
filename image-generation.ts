@@ -202,7 +202,7 @@ function buildImageTool(params: ImageGenerationParams, format: "png" | "jpeg" | 
 		if (params.output_compression < 0 || params.output_compression > 100) {
 			throw new Error("output_compression must be between 0 and 100");
 		}
-		tool.output_compression = params.output_compression;
+		if (format !== "png") tool.output_compression = params.output_compression;
 	}
 	if (params.background === "transparent" && format === "jpeg") {
 		throw new Error("Transparent images require PNG or WebP output");
@@ -425,6 +425,7 @@ export function registerImageGeneration(pi: ExtensionAPI): void {
 		promptGuidelines: [
 			"Use image_gen for AI-created or AI-edited raster images; do not substitute SVG, HTML, or CLI scripts when a bitmap is requested.",
 			"Use image_paths for local edit/reference images when the user identifies files; use output_path only when the user requests a specific destination.",
+			"Use output_compression only with JPEG or WebP output; omit it for PNG output.",
 			"image_gen saves to the current Pi session's generated_images directory by default, or /tmp/generated_images for --no-session runs, and does not overwrite existing files unless overwrite is true.",
 		],
 		parameters: Type.Object({
@@ -434,7 +435,7 @@ export function registerImageGeneration(pi: ExtensionAPI): void {
 			quality: Type.Optional(Type.String({ description: "low, medium, high, or auto" })),
 			background: Type.Optional(Type.String({ description: "transparent, opaque, or auto" })),
 			output_format: Type.Optional(Type.String({ description: "png, jpeg, jpg, or webp; OpenAI Codex supports png only" })),
-			output_compression: Type.Optional(Type.Number({ description: "JPEG/WebP compression from 0 to 100; Codex Gateway only" })),
+			output_compression: Type.Optional(Type.Number({ description: "JPEG/WebP compression from 0 to 100; ignored for PNG; Codex Gateway only" })),
 			image_paths: Type.Optional(Type.Array(Type.String(), { maxItems: 16 })),
 			use_conversation_images: Type.Optional(Type.Boolean({ description: "Use images attached to the latest user message when image_paths is omitted" })),
 			output_path: Type.Optional(Type.String({ description: "Optional destination path, relative to the project cwd" })),

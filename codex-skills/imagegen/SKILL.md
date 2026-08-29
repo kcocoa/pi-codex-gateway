@@ -89,7 +89,8 @@ return the image inline.
 - `use_conversation_images` — defaults to true when `image_paths` is omitted. Set it
   false if an image attached to the latest user message is unrelated.
 - `size`, `quality`, `background`, `output_format`, `output_compression` — native tool
-  options. `openai-codex` currently supports PNG output only and does not accept
+  options. Use `output_compression` only with JPEG or WebP, never with PNG.
+  `openai-codex` currently supports PNG output only and does not accept
   `output_compression`. Only specify these fields when the user requires a constraint.
 - `output_path` — explicit project or user-specified destination.
 - `overwrite` — set true only when the user explicitly asks to replace that path.
