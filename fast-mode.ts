@@ -2,12 +2,16 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
 	type ExtensionAPI,
+	type ExtensionContext,
 	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
+import { isCodexGpt } from "./codex-provider.ts";
+
 export type CodexServiceTier = "default" | "priority";
 
 const CONFIG_PATH = join(getAgentDir(), "codex.json");
 const DEFAULT_SERVICE_TIER: CodexServiceTier = "default";
+const STATUS_KEY = "codex-fast";
 
 interface CodexConfig {
 	serviceTier?: CodexServiceTier;
@@ -16,6 +20,13 @@ interface CodexConfig {
 
 export interface CodexFastModeSupport {
 	getServiceTier(): CodexServiceTier;
+}
+
+export function formatFastTierStatus(
+	tier: CodexServiceTier,
+	fg: (color: "accent" | "dim", text: string) => string,
+): string {
+	return fg(tier === "priority" ? "accent" : "dim", `fast:${tier}`);
 }
 
 function isCodexServiceTier(value: unknown): value is CodexServiceTier {
@@ -48,6 +59,32 @@ export async function registerCodexFastModeSupport(
 		? config.serviceTier
 		: DEFAULT_SERVICE_TIER;
 
+	const setStatus = (
+		ctx: ExtensionContext,
+		text: string | undefined,
+	): void => {
+		if (!ctx.hasUI) return;
+		try {
+			ctx.ui.setStatus(STATUS_KEY, text);
+		} catch {
+			// Ignore stale session contexts during reload/session replacement.
+		}
+	};
+
+	const renderStatus = (ctx: ExtensionContext): void => {
+		if (!ctx.hasUI) return;
+		if (!isCodexGpt(ctx)) {
+			setStatus(ctx, undefined);
+			return;
+		}
+		setStatus(
+			ctx,
+			formatFastTierStatus(serviceTier, (color, text) =>
+				ctx.ui.theme.fg(color, text),
+			),
+		);
+	};
+
 	pi.registerCommand("codex:fast", {
 		description: "Toggle or set the Codex service tier",
 		getArgumentCompletions: (prefix) => {
@@ -71,9 +108,14 @@ export async function registerCodexFastModeSupport(
 					? "priority"
 					: "default";
 			await writeServiceTier(serviceTier);
+			renderStatus(ctx);
 			ctx.ui.notify(`Codex service tier: ${serviceTier}`, "info");
 		},
 	});
+
+	pi.on("session_start", (_event, ctx) => renderStatus(ctx));
+	pi.on("session_shutdown", (_event, ctx) => setStatus(ctx, undefined));
+	pi.on("model_select", (_event, ctx) => renderStatus(ctx));
 
 	return { getServiceTier: () => serviceTier };
 }
