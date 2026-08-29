@@ -1,12 +1,23 @@
-# Codex Gateway provider
+# Codex providers extension
 
-User-level pi extension registering the `codex-gateway` provider:
+User-level Pi extension for both Codex providers:
 
-- Provider: `codex-gateway`
-- API: `openai-responses` (built-in standard Responses API, REST + SSE — no custom API code)
-- Auth: built-in `envApiKeyAuth` (stored credential via `/login` or `CODEX_GATEWAY_API_KEY` env)
-- Model catalog: mirrors the installed pi `openai-codex` catalog (auto-synced on pi updates, no manual maintenance)
-- Default base URL: `https://chatgpt.com/v1` (official). To use a gateway/proxy, override via `~/.pi/agent/models.json`:
+- `codex-gateway`: API-key provider for standard OpenAI Responses gateways.
+- `openai-codex`: augments Pi's built-in ChatGPT OAuth provider.
+
+Shared features include hosted web search, image generation, cyber warnings, and
+quota display.
+
+## Provider behavior
+
+### `codex-gateway`
+
+- API: `openai-responses`
+- Auth: `/login codex-gateway` or `CODEX_GATEWAY_API_KEY`
+- Default base URL: `https://chatgpt.com/v1`
+- Models: mirrors Pi's installed `openai-codex` catalog
+
+Override its endpoint in `~/.pi/agent/models.json`:
 
 ```json
 {
@@ -18,95 +29,79 @@ User-level pi extension registering the `codex-gateway` provider:
 }
 ```
 
-## Why this extension
+### `openai-codex`
 
-The built-in `openai-codex` provider is hardwired to ChatGPT account OAuth + WebSocket transport (`chatgpt.com/backend-api`). For API-key based gateways that speak the standard Responses protocol over SSE, this extension registers a provider that:
-
-- Mirrors the official codex model catalog automatically (`getBuiltinModels("openai-codex")`)
-- Uses the built-in `openai-responses` API implementation (no self-written streaming code)
-- Authenticates with a Bearer API key
+The extension preserves Pi's built-in model catalog and ChatGPT Plus/Pro OAuth.
+It overrides only `streamSimple`, delegates to Pi's official
+`openai-codex-responses` implementation, and forces SSE so optional raw Codex
+metadata can be observed. This disables the provider's WebSocket transport while
+the extension is loaded.
 
 ## Layout
 
-- `index.ts`: provider registration, provider-scoped Skill discovery, and tool activation
-- `cyber-warning.ts`: configurable cyber-warning policy and persistent user setting
-- `codex-sse.ts`: transparent observation of optional provider-specific SSE events
-- `image-generation.ts`: native Responses `image_generation` tool wrapper and session-scoped output persistence
-- `rate-limits.ts`: optional Codex quota header/event parsing
+- `index.ts`: registration and provider-scoped capabilities
+- `codex-provider.ts`: shared provider matching
+- `codex-sse.ts`: transparent observation of optional SSE events
+- `codex-signals.ts`: server-model and cyber recommendation parsing
+- `cyber-warning.ts`: warning policy and persistent setting
+- `rate-limits.ts`: quota header/event parsing
 - `quota-display.ts`: footer status and detailed quota command
-- `providers/codex-gateway.ts`: provider composition (built-in API + auth)
-- `providers/codex-gateway.models.ts`: mirror of the openai-codex catalog (api → `openai-responses`)
-
-Normal chat streaming uses the built-in `@earendil-works/pi-ai` Responses implementation.
-`image-generation.ts` makes a separate non-streaming Responses request only when Pi's
-`image_gen` tool is called, because Pi's standard Responses stream parser does not expose
-hosted image-generation results as a Pi tool result.
-
-## Authentication
-
-Use either `/login codex-gateway` (stored in `auth.json`) or an environment variable:
-
-```bash
-export CODEX_GATEWAY_API_KEY="your-key"
-```
-
-The provider converts the API key to `Authorization: Bearer <key>`.
-
-## Model catalog notes
-
-The mirror maps every built-in codex model to the `openai-responses` API. Costs, context windows, thinking level maps, and `compat` flags (`supportsToolSearch`, `supportsOpenAIGrammarTools`, ...) are inherited unchanged from the official pi catalog.
+- `image-generation.ts`: provider-native image generation and persistence
+- `providers/codex-gateway.ts`: API-key gateway provider
+- `providers/openai-codex.ts`: official provider SSE observer
 
 ## Cyber warnings
 
-For active `codex-gateway` GPT models, the extension observes optional Codex safety
-signals without changing normal Responses parsing:
+For active GPT models from either provider, the extension observes:
 
-- an `openai-model` / `x-openai-model` value that differs from the requested model;
+- `openai-model` / `x-openai-model` values that differ from the requested model;
 - `response.metadata` or `codex.response.metadata` containing
   `openai_verification_recommendation: ["trusted_access_for_cyber"]`.
 
-Run `/codex-gateway:settings` to select one of these persistent policies:
+Run `/codex:settings` to choose:
 
-- `warn` (default): display the warning and continue;
-- `stop`: display the first warning and abort the current turn;
-- `stop-after-repeat`: continue after the first warned turn in a session, then abort
-  the second warned turn.
+- `warn` (default): show the warning and continue;
+- `stop`: abort the current turn on the first warning;
+- `stop-after-repeat`: continue after the first warned turn, then abort the
+  second warned turn in the session.
 
 The command also accepts the policy directly, for example
-`/codex-gateway:settings stop`. The setting is stored in
-`<Pi agent directory>/codex-gateway.json`. Missing headers or stream metadata are
-silently ignored. When a turn is stopped, switch model or authentication before
-retrying.
+`/codex:settings stop`. The setting is stored in
+`<Pi agent directory>/codex.json`.
 
 ## Quota display
 
-When the gateway exposes Codex quota information, the extension parses it from:
+For either provider, quota data is parsed from normal response headers and
+optional stream events:
 
-- `x-<limit>-primary-*` and `x-<limit>-secondary-*` response-header families;
+- `x-<limit>-primary-*` and `x-<limit>-secondary-*`;
 - `x-codex-credits-*`, `x-codex-active-limit`, promo, and reached-type headers;
-- optional `codex.rate_limits` stream events.
+- `codex.rate_limits` events.
 
-The selected/default limit is shown as remaining percentages in Pi's footer, for
-example `5h:82% 7d:54%`. Run `/codex-gateway:usage` for all observed limits,
-reset times, plan type, credits, and server messages. The extension does not make
-an extra quota request and silently shows nothing until the gateway supplies this
-information.
+The footer shows remaining percentages such as `5h:82% 7d:54%`. Run
+`/codex:usage` for all observed limits, reset times, plan type, credits, and
+server messages. No separate quota request is made; the display remains empty
+until a provider supplies quota data.
 
-## Native image generation
+## Hosted web search
 
-For active `codex-gateway` GPT models, this extension also:
+For both providers, the extension adds `{ "type": "web_search" }` to the
+provider request when no hosted web-search tool is already present.
 
-- discovers `codex-skills/imagegen/SKILL.md` as the provider-scoped `/skill:imagegen` Skill;
-- activates an `image_gen` Pi tool that calls the model's native Responses API
-  `image_generation` hosted tool (not the bundled Python CLI);
-- writes results by default to
-  `<Pi session directory>/generated_images/`, typically
-  `~/.pi/agent/sessions/--<encoded-cwd>--/generated_images/`; for `--no-session`
-  runs, `/tmp/generated_images/`;
-- accepts `image_paths` for local editing/reference inputs and returns the generated
-  image as Pi tool output for inline display and follow-up edits.
+## Image generation
 
-Use `output_path` only when the requested asset belongs in the project. The tool avoids
-overwriting an existing file unless `overwrite: true` is explicitly passed. The Skill is
-discovered only at startup or `/reload`; after switching to or from this provider, run
-`/reload` to refresh its available-Skill list.
+For active GPT models from either provider, the extension discovers
+`codex-skills/imagegen/SKILL.md` and activates the `image_gen` tool.
+
+- `codex-gateway` uses the Responses API hosted `image_generation` tool.
+- `openai-codex` uses the official Codex Images endpoints with the existing OAuth
+  token and `gpt-image-2`. It supports generation and edits with up to five input
+  images and currently returns PNG output only.
+
+Generated files are saved by default under the current Pi session's
+`generated_images/` directory. Ephemeral `--no-session` runs use
+`/tmp/generated_images/`. Set `output_path` when the asset belongs in the
+project. Existing files are not overwritten unless `overwrite: true` is given.
+
+The Skill is discovered at startup or `/reload`; after switching to or from a
+supported provider, run `/reload` to refresh the available Skill list.

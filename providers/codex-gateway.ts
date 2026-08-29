@@ -1,9 +1,9 @@
 import {
 	createProvider,
 	envApiKeyAuth,
-	openAIResponsesApi,
 	type ProviderStreams,
 } from "@earendil-works/pi-ai";
+import { openAIResponsesApi } from "@earendil-works/pi-ai/compat";
 import {
 	createObservedFetch,
 	type CodexGatewayStreamEventHandler,

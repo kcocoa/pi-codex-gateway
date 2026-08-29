@@ -30,7 +30,7 @@ function createContext(provider = "codex-gateway") {
 		ctx: {
 			model: {
 				provider,
-				id: provider === "codex-gateway" ? "gpt-5.4" : "other",
+				id: provider === "anthropic" ? "claude-opus" : "gpt-5.4",
 			},
 			hasUI: true,
 			ui: {
@@ -66,8 +66,31 @@ describe("Codex quota display", () => {
 		);
 
 		expect(setStatus.mock.calls.at(-1)).toEqual([
-			"codex-gateway-quota",
+			"codex-quota",
 			"5h:80% 7d:50%",
+		]);
+	});
+
+	it("renders quota headers for the official OpenAI Codex provider", async () => {
+		const harness = createHarness();
+		registerQuotaDisplaySupport(harness.pi);
+		const { ctx, setStatus } = createContext("openai-codex");
+		await harness.emit(
+			"after_provider_response",
+			{
+				type: "after_provider_response",
+				status: 200,
+				headers: {
+					"x-codex-primary-used-percent": "25",
+					"x-codex-primary-window-minutes": "300",
+				},
+			},
+			ctx,
+		);
+
+		expect(setStatus.mock.calls.at(-1)).toEqual([
+			"codex-quota",
+			"5h:75%",
 		]);
 	});
 
@@ -82,7 +105,7 @@ describe("Codex quota display", () => {
 		});
 
 		expect(setStatus.mock.calls.at(-1)).toEqual([
-			"codex-gateway-quota",
+			"codex-quota",
 			"1h:70%",
 		]);
 	});
@@ -107,9 +130,34 @@ describe("Codex quota display", () => {
 		await harness.emit("model_select", { type: "model_select" }, other.ctx);
 
 		expect(other.setStatus.mock.calls.at(-1)).toEqual([
-			"codex-gateway-quota",
+			"codex-quota",
 			undefined,
 		]);
+	});
+
+	it("clears stale quota when switching between Codex providers", async () => {
+		const harness = createHarness();
+		registerQuotaDisplaySupport(harness.pi);
+		const gateway = createContext();
+		await harness.emit(
+			"after_provider_response",
+			{
+				type: "after_provider_response",
+				status: 200,
+				headers: {
+					"x-codex-primary-used-percent": "10",
+					"x-codex-primary-window-minutes": "300",
+				},
+			},
+			gateway.ctx,
+		);
+		const official = createContext("openai-codex");
+		await harness.emit("model_select", { type: "model_select" }, official.ctx);
+		await harness.commands.get("codex:usage")?.handler("", official.ctx);
+
+		expect(official.notify.mock.calls.at(-1)?.[0]).toContain(
+			"No Codex quota data",
+		);
 	});
 
 	it("registers a detailed usage command", async () => {
@@ -131,7 +179,7 @@ describe("Codex quota display", () => {
 			},
 			ctx,
 		);
-		await harness.commands.get("codex-gateway:usage")?.handler("", ctx);
+		await harness.commands.get("codex:usage")?.handler("", ctx);
 
 		expect(notify.mock.calls.at(-1)?.[0]).toContain(
 			"Primary (5h): 20% used, 80% left",

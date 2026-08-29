@@ -2,6 +2,7 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, extname, join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { isCodexGpt, isOpenAICodexGpt } from "./codex-provider.ts";
 
 export const IMAGE_GENERATION_TOOL_NAME = "image_gen";
 
@@ -37,9 +38,14 @@ type ResponsesPayload = {
 	error?: unknown;
 };
 
-function isCodexGatewayGpt(ctx: ExtensionContext): boolean {
-	return ctx.model?.provider === "codex-gateway" && /^gpt-/i.test(ctx.model.id);
-}
+type CodexImagesPayload = {
+	data?: Array<{ b64_json?: unknown }>;
+	error?: unknown;
+};
+
+const OPENAI_CODEX_IMAGE_MODEL = "gpt-image-2";
+const OPENAI_CODEX_MAX_IMAGES = 5;
+const OPENAI_AUTH_CLAIM = "https://api.openai.com/auth";
 
 function normalizeImagePath(rawPath: string, cwd: string): string {
 	const path = rawPath.startsWith("@") ? rawPath.slice(1) : rawPath;
@@ -204,32 +210,146 @@ function buildImageTool(params: ImageGenerationParams, format: "png" | "jpeg" | 
 	return tool;
 }
 
+function extractOpenAICodexAccountId(token: string): string {
+	try {
+		const payload = JSON.parse(
+			Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8"),
+		) as Record<string, unknown>;
+		const auth = payload[OPENAI_AUTH_CLAIM] as Record<string, unknown> | undefined;
+		if (typeof auth?.chatgpt_account_id === "string") return auth.chatgpt_account_id;
+	} catch {
+		// Fall through to the common error below.
+	}
+	throw new Error("Failed to extract the ChatGPT account ID from OpenAI Codex authentication");
+}
+
+function openAICodexImageUrl(baseUrl: string, operation: "generations" | "edits"): string {
+	const normalized = baseUrl.replace(/\/+$/, "");
+	const codexBase = normalized.endsWith("/codex/responses")
+		? normalized.slice(0, -"/responses".length)
+		: normalized.endsWith("/codex")
+			? normalized
+			: `${normalized}/codex`;
+	return `${codexBase}/images/${operation}`;
+}
+
+async function callOpenAICodexImageGeneration(
+	baseUrl: string,
+	apiKey: string,
+	authHeaders: Record<string, string>,
+	params: ImageGenerationParams,
+	inputImages: Array<Record<string, string>>,
+	turnId: string,
+	signal?: AbortSignal,
+): Promise<{ outputs: ImageOutput[]; responseId?: string }> {
+	if (outputFormatFor(params) !== "png" || params.output_compression !== undefined) {
+		throw new Error("OpenAI Codex image generation currently supports PNG output only");
+	}
+	if (inputImages.length > OPENAI_CODEX_MAX_IMAGES) {
+		throw new Error(`OpenAI Codex image editing supports at most ${OPENAI_CODEX_MAX_IMAGES} input images`);
+	}
+
+	const editing = params.action === "edit" || inputImages.length > 0;
+	if (params.action === "edit" && inputImages.length === 0) {
+		throw new Error("OpenAI Codex image editing requires at least one input image");
+	}
+	const requestBody: Record<string, unknown> = {
+		prompt: params.prompt,
+		model: OPENAI_CODEX_IMAGE_MODEL,
+	};
+	for (const key of ["background", "quality", "size"] as const) {
+		const value = params[key];
+		if (value !== undefined) requestBody[key] = value;
+	}
+	if (editing) {
+		requestBody.images = inputImages.map((image) => ({ image_url: image.image_url }));
+	}
+
+	const headers: Record<string, string> = {
+		...authHeaders,
+		"content-type": "application/json",
+		"chatgpt-account-id": extractOpenAICodexAccountId(apiKey),
+		"x-codex-image-turn-id": turnId,
+		originator: "pi",
+	};
+	if (!Object.keys(headers).some((key) => key.toLowerCase() === "authorization")) {
+		headers.authorization = `Bearer ${apiKey}`;
+	}
+
+	const response = await fetch(openAICodexImageUrl(baseUrl, editing ? "edits" : "generations"), {
+		method: "POST",
+		headers,
+		body: JSON.stringify(requestBody),
+		signal,
+	});
+	const rawBody = await response.text();
+	let body: CodexImagesPayload;
+	try {
+		body = JSON.parse(rawBody) as CodexImagesPayload;
+	} catch {
+		throw new Error(`Image generation returned non-JSON HTTP ${response.status}: ${rawBody.slice(0, 500)}`);
+	}
+	if (!response.ok) {
+		const errorText = typeof body.error === "string" ? body.error : JSON.stringify(body.error ?? body).slice(0, 1000);
+		throw new Error(`Image generation failed (HTTP ${response.status}): ${errorText}`);
+	}
+
+	const outputs = (body.data ?? [])
+		.map((item) => typeof item.b64_json === "string" && item.b64_json.length > 0
+			? { data: item.b64_json, mimeType: "image/png", path: "" }
+			: undefined)
+		.filter((item): item is ImageOutput => item !== undefined);
+	if (outputs.length === 0) {
+		throw new Error("The OpenAI Codex Images API did not return image data");
+	}
+	return {
+		outputs,
+		responseId: response.headers.get("x-codex-imagegen-request-id") ?? undefined,
+	};
+}
+
 async function callImageGeneration(
 	ctx: ExtensionContext,
 	params: ImageGenerationParams,
+	turnId: string,
 	signal?: AbortSignal,
 ): Promise<{ outputs: ImageOutput[]; responseId?: string }> {
-	if (!isCodexGatewayGpt(ctx)) {
-		throw new Error("image_gen is only available with the codex-gateway provider");
+	const model = ctx.model;
+	if (!model || !isCodexGpt(ctx)) {
+		throw new Error("image_gen is only available with a Codex GPT model");
 	}
 
-	const model = ctx.model;
 	const requestAuth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 	if (!requestAuth.ok) throw new Error(requestAuth.error);
 	const providerAuth = await ctx.modelRegistry.getProviderAuth(model.provider);
 	const apiKey = requestAuth.apiKey;
-	const authHeaders = requestAuth.headers ?? {};
-	if (!apiKey && !Object.keys(authHeaders).some((key) => key.toLowerCase() === "authorization")) {
+	const headers: Record<string, string> = {};
+	for (const [key, value] of Object.entries(requestAuth.headers ?? {})) {
+		if (typeof value === "string") headers[key] = value;
+	}
+	if (!apiKey && !Object.keys(headers).some((key) => key.toLowerCase() === "authorization")) {
 		throw new Error(`No API key configured for provider ${model.provider}`);
 	}
 
+	const baseUrl = (
+		requestAuth.baseUrl ?? providerAuth?.auth.baseUrl ?? model.baseUrl
+	).replace(/\/+$/, "");
 	const format = outputFormatFor(params);
 	const explicitImages = params.image_paths ?? [];
+	const imageLimit = isOpenAICodexGpt(ctx) ? OPENAI_CODEX_MAX_IMAGES : 16;
+	if (explicitImages.length > imageLimit) {
+		throw new Error(`${model.provider} image generation supports at most ${imageLimit} input images`);
+	}
 	const inputImages = explicitImages.length > 0
-		? await Promise.all(explicitImages.slice(0, 16).map((path) => imagePathToInput(path, ctx.cwd)))
+		? await Promise.all(explicitImages.map((path) => imagePathToInput(path, ctx.cwd)))
 		: params.use_conversation_images === false
 			? []
-			: latestConversationImages(ctx).slice(0, 16);
+			: latestConversationImages(ctx).slice(0, imageLimit);
+
+	if (isOpenAICodexGpt(ctx)) {
+		if (!apiKey) throw new Error("OpenAI Codex image generation requires OAuth authentication");
+		return callOpenAICodexImageGeneration(baseUrl, apiKey, headers, params, inputImages, turnId, signal);
+	}
 
 	const input = inputImages.length > 0
 		? [{
@@ -250,17 +370,11 @@ async function callImageGeneration(
 		store: false,
 	};
 
-	const headers: Record<string, string> = {
-		"content-type": "application/json",
-	};
-	for (const [key, value] of Object.entries(authHeaders)) {
-		if (value !== null) headers[key] = value;
-	}
+	headers["content-type"] = "application/json";
 	if (apiKey && !Object.keys(headers).some((key) => key.toLowerCase() === "authorization")) {
 		headers.authorization = `Bearer ${apiKey}`;
 	}
 
-	const baseUrl = (providerAuth?.auth.baseUrl ?? model.baseUrl).replace(/\/+$/, "");
 	const response = await fetch(`${baseUrl}/responses`, {
 		method: "POST",
 		headers,
@@ -279,20 +393,19 @@ async function callImageGeneration(
 		throw new Error(`Image generation failed (HTTP ${response.status}): ${errorText}`);
 	}
 
-	const calls = (body.output ?? []).filter((item) => item.type === "image_generation_call");
-	const generated = calls
-		.map((item) => {
-			const result = item.result;
-			if (typeof result !== "string" || result.length === 0) return undefined;
-			const decoded = decodeImageResult(result, format);
-			return {
-				data: decoded.data,
-				mimeType: decoded.mimeType,
-				path: "",
-				revisedPrompt: typeof item.revised_prompt === "string" ? item.revised_prompt : undefined,
-			};
-		})
-		.filter((item): item is ImageOutput => item !== undefined);
+	const generated: ImageOutput[] = [];
+	for (const item of body.output ?? []) {
+		if (item.type !== "image_generation_call" || typeof item.result !== "string" || item.result.length === 0) {
+			continue;
+		}
+		const decoded = decodeImageResult(item.result, format);
+		generated.push({
+			data: decoded.data,
+			mimeType: decoded.mimeType,
+			path: "",
+			revisedPrompt: typeof item.revised_prompt === "string" ? item.revised_prompt : undefined,
+		});
+	}
 
 	if (generated.length === 0) {
 		const text = body.output_text ? ` Output text: ${body.output_text}` : "";
@@ -307,7 +420,7 @@ export function registerImageGeneration(pi: ExtensionAPI): void {
 		name: IMAGE_GENERATION_TOOL_NAME,
 		label: "Image Generation",
 		description:
-			"Generate or edit raster images through the Codex Gateway provider's native Responses image_generation tool. Saves outputs under the current Pi session directory by default and returns the generated image to the model.",
+			"Generate or edit raster images through the active Codex provider's native image API. Saves outputs under the current Pi session directory by default and returns the generated image to the model.",
 		promptSnippet: "Generate or edit raster images with the provider-native image generation tool",
 		promptGuidelines: [
 			"Use image_gen for AI-created or AI-edited raster images; do not substitute SVG, HTML, or CLI scripts when a bitmap is requested.",
@@ -320,16 +433,16 @@ export function registerImageGeneration(pi: ExtensionAPI): void {
 			size: Type.Optional(Type.String({ description: "Image size such as 1024x1024, 1536x1024, or auto" })),
 			quality: Type.Optional(Type.String({ description: "low, medium, high, or auto" })),
 			background: Type.Optional(Type.String({ description: "transparent, opaque, or auto" })),
-			output_format: Type.Optional(Type.String({ description: "png, jpeg, jpg, or webp" })),
-			output_compression: Type.Optional(Type.Number({ description: "JPEG/WebP compression from 0 to 100" })),
+			output_format: Type.Optional(Type.String({ description: "png, jpeg, jpg, or webp; OpenAI Codex supports png only" })),
+			output_compression: Type.Optional(Type.Number({ description: "JPEG/WebP compression from 0 to 100; Codex Gateway only" })),
 			image_paths: Type.Optional(Type.Array(Type.String(), { maxItems: 16 })),
 			use_conversation_images: Type.Optional(Type.Boolean({ description: "Use images attached to the latest user message when image_paths is omitted" })),
 			output_path: Type.Optional(Type.String({ description: "Optional destination path, relative to the project cwd" })),
 			overwrite: Type.Optional(Type.Boolean({ description: "Allow replacing an existing output file" })),
 		}),
-		async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
+		async execute(toolCallId, rawParams, signal, _onUpdate, ctx) {
 			const params = rawParams as ImageGenerationParams;
-			const result = await callImageGeneration(ctx, params, signal);
+			const result = await callImageGeneration(ctx, params, toolCallId, signal);
 			const format = outputFormatFor(params);
 			const firstPath = outputPathFor(ctx, params, format);
 			const paths: string[] = [];
@@ -362,8 +475,6 @@ export function registerImageGeneration(pi: ExtensionAPI): void {
 
 export function syncImageGenerationTool(pi: ExtensionAPI, ctx: ExtensionContext): void {
 	const active = pi.getActiveTools().filter((name) => name !== IMAGE_GENERATION_TOOL_NAME);
-	if (isCodexGatewayGpt(ctx)) active.push(IMAGE_GENERATION_TOOL_NAME);
+	if (isCodexGpt(ctx)) active.push(IMAGE_GENERATION_TOOL_NAME);
 	pi.setActiveTools([...new Set(active)]);
 }
-
-export { isCodexGatewayGpt };

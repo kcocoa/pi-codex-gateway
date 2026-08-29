@@ -1,17 +1,17 @@
 ---
 name: imagegen
-description: Generate or edit raster images through the Codex Gateway provider's native OpenAI Responses image_generation tool. Use for AI-created photos, illustrations, textures, sprites, mockups, product imagery, and transparent-background cutouts. Do not use for repo-native SVG, HTML/CSS/canvas, or an established vector/icon system.
+description: Generate or edit raster images through the active Codex provider's native image API. Use for AI-created photos, illustrations, textures, sprites, mockups, product imagery, and transparent-background cutouts. Do not use for repo-native SVG, HTML/CSS/canvas, or an established vector/icon system.
 ---
 
-# Image Generation for Pi / Codex Gateway
+# Image Generation for Pi / Codex
 
-Use Pi's `image_gen` tool for this skill. The tool is an extension wrapper around the
-active `codex-gateway` GPT model's native OpenAI Responses `image_generation` tool;
-it is **not** a Python/CLI fallback.
+Use Pi's `image_gen` tool for this skill. It uses the active provider's native image
+API: the Responses `image_generation` tool for `codex-gateway`, or the official Codex
+Images API for `openai-codex`. It is **not** a Python/CLI fallback.
 
-The tool is available only while the active model is a GPT model from the
-`codex-gateway` provider. If the provider changes, run `/reload` to refresh the
-provider-scoped skill discovery.
+The tool is available only while the active model is a GPT model from either supported
+Codex provider. If the provider changes, run `/reload` to refresh provider-scoped Skill
+discovery.
 
 ## Non-negotiable rules
 
@@ -83,12 +83,14 @@ return the image inline.
 
 - `prompt` — required final image specification.
 - `action` — `generate`, `edit`, or `auto`; use `edit` when preserving input content.
-- `image_paths` — local image paths for edit targets or visual references, up to 16.
-  Explicit paths take precedence over attached conversation images.
+- `image_paths` — local image paths for edit targets or visual references, up to 16
+  with `codex-gateway` or 5 with `openai-codex`. Explicit paths take precedence over
+  attached conversation images.
 - `use_conversation_images` — defaults to true when `image_paths` is omitted. Set it
   false if an image attached to the latest user message is unrelated.
 - `size`, `quality`, `background`, `output_format`, `output_compression` — native tool
-  options. Only specify them when the user requires a constraint.
+  options. `openai-codex` currently supports PNG output only and does not accept
+  `output_compression`. Only specify these fields when the user requires a constraint.
 - `output_path` — explicit project or user-specified destination.
 - `overwrite` — set true only when the user explicitly asks to replace that path.
 
@@ -154,9 +156,9 @@ thin fringe.
 ### Native transparency
 
 When the user explicitly requests true/native transparency, call `image_gen` with
-`background: "transparent"` and PNG or WebP output. Some hosted image models may reject
-that option. If so, explain the limitation and offer the chroma-key workflow above; do
-not fall back to the bundled CLI.
+`background: "transparent"` and PNG output (`codex-gateway` may also support WebP).
+Some hosted image models may reject that option. If so, explain the limitation and offer
+the chroma-key workflow above; do not fall back to the bundled CLI.
 
 For hair, fur, feathers, smoke, glass, liquids, translucent materials, reflective
 objects, or soft shadows, explain that chroma-key removal may have imperfect edges and

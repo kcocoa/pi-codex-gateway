@@ -5,6 +5,7 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { codexProviderLabel, isCodexGpt } from "./codex-provider.ts";
 import type { CodexGatewayStreamEvent } from "./codex-sse.ts";
 import {
 	getServerModelFromResponseHeaders,
@@ -16,7 +17,7 @@ export type CyberWarningAction = "warn" | "stop" | "stop-after-repeat";
 
 const DEFAULT_ACTION: CyberWarningAction = "warn";
 const REPEATED_WARNING_LIMIT = 2;
-const CONFIG_PATH = join(getAgentDir(), "codex-gateway.json");
+const CONFIG_PATH = join(getAgentDir(), "codex.json");
 
 const ACTION_LABELS: Record<CyberWarningAction, string> = {
 	warn: "Show warnings only",
@@ -24,7 +25,7 @@ const ACTION_LABELS: Record<CyberWarningAction, string> = {
 	"stop-after-repeat": `Stop on the ${REPEATED_WARNING_LIMIT}nd warned turn in this session`,
 };
 
-interface CodexGatewayConfig {
+interface CodexConfig {
 	cyberWarningAction?: CyberWarningAction;
 	[key: string]: unknown;
 }
@@ -37,11 +38,11 @@ function isCyberWarningAction(value: unknown): value is CyberWarningAction {
 	return value === "warn" || value === "stop" || value === "stop-after-repeat";
 }
 
-async function readConfig(): Promise<CodexGatewayConfig> {
+async function readConfig(): Promise<CodexConfig> {
 	try {
 		const parsed = JSON.parse(await readFile(CONFIG_PATH, "utf8")) as unknown;
 		return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-			? parsed as CodexGatewayConfig
+			? parsed as CodexConfig
 			: {};
 	} catch {
 		return {};
@@ -53,10 +54,6 @@ async function writeAction(action: CyberWarningAction): Promise<void> {
 	config.cyberWarningAction = action;
 	await mkdir(dirname(CONFIG_PATH), { recursive: true });
 	await writeFile(CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`, "utf8");
-}
-
-function isCodexGatewayGpt(ctx: ExtensionContext): boolean {
-	return ctx.model?.provider === "codex-gateway" && /^gpt-/i.test(ctx.model.id);
 }
 
 export async function registerCyberWarningSupport(pi: ExtensionAPI): Promise<CyberWarningSupport> {
@@ -108,12 +105,12 @@ export async function registerCyberWarningSupport(pi: ExtensionAPI): Promise<Cyb
 		notifyWarning(
 			ctx,
 			`reroute:${fromModel.toLowerCase()}:${serverModel.toLowerCase()}`,
-			`Codex Gateway cyber warning: requested ${fromModel}, but the server routed this turn to ${serverModel}.`,
+			`${codexProviderLabel(ctx.model?.provider)} cyber warning: requested ${fromModel}, but the server routed this turn to ${serverModel}.`,
 		);
 	};
 
-	pi.registerCommand("codex-gateway:settings", {
-		description: "Configure Codex Gateway cyber-warning handling",
+	pi.registerCommand("codex:settings", {
+		description: "Configure Codex cyber-warning handling",
 		handler: async (args, ctx) => {
 			const requestedAction = args.trim();
 			let nextAction: CyberWarningAction | undefined;
@@ -127,19 +124,19 @@ export async function registerCyberWarningSupport(pi: ExtensionAPI): Promise<Cyb
 				const labels = (Object.keys(ACTION_LABELS) as CyberWarningAction[]).map(
 					(value) => `${value === action ? "●" : "○"} ${ACTION_LABELS[value]}`,
 				);
-				const selected = await ctx.ui.select("Codex Gateway cyber warnings", labels);
+				const selected = await ctx.ui.select("Codex cyber warnings", labels);
 				const index = selected ? labels.indexOf(selected) : -1;
 				if (index < 0) return;
 				nextAction = (Object.keys(ACTION_LABELS) as CyberWarningAction[])[index];
 			} else {
-				ctx.ui.notify(`Codex Gateway cyber-warning action: ${action}`, "info");
+				ctx.ui.notify(`Codex cyber-warning action: ${action}`, "info");
 				return;
 			}
 
 			action = nextAction;
 			warnedTurns = 0;
 			await writeAction(action);
-			ctx.ui.notify(`Codex Gateway cyber-warning action: ${action}`, "info");
+			ctx.ui.notify(`Codex cyber-warning action: ${action}`, "info");
 		},
 	});
 
@@ -147,7 +144,7 @@ export async function registerCyberWarningSupport(pi: ExtensionAPI): Promise<Cyb
 	pi.on("session_shutdown", () => resetSessionState());
 	pi.on("model_select", () => resetSessionState());
 	pi.on("turn_start", (_event, ctx) => {
-		activeContext = isCodexGatewayGpt(ctx) ? ctx : undefined;
+		activeContext = isCodexGpt(ctx) ? ctx : undefined;
 		requestedModel = activeContext?.model?.id;
 		countedCurrentTurn = false;
 		abortingCurrentTurn = false;
@@ -155,7 +152,7 @@ export async function registerCyberWarningSupport(pi: ExtensionAPI): Promise<Cyb
 	});
 
 	pi.on("after_provider_response", (event, ctx) => {
-		if (!isCodexGatewayGpt(ctx)) return;
+		if (!isCodexGpt(ctx)) return;
 		const serverModel = getServerModelFromResponseHeaders(event.headers);
 		if (serverModel) handleServerModel(ctx, serverModel);
 	});
@@ -163,7 +160,7 @@ export async function registerCyberWarningSupport(pi: ExtensionAPI): Promise<Cyb
 	return {
 		handleStreamEvent(event) {
 			const ctx = activeContext;
-			if (!ctx || !isCodexGatewayGpt(ctx)) return;
+			if (!ctx || !isCodexGpt(ctx)) return;
 
 			const serverModel = getServerModelFromStreamEvent(event);
 			if (serverModel) handleServerModel(ctx, serverModel);
@@ -171,7 +168,7 @@ export async function registerCyberWarningSupport(pi: ExtensionAPI): Promise<Cyb
 				notifyWarning(
 					ctx,
 					"trusted-access-for-cyber",
-					"Codex Gateway cyber warning: repeated cybersecurity-risk flags enabled additional safety checks. Trusted Access for Cyber or different authentication may be required.",
+					`${codexProviderLabel(ctx.model?.provider)} cyber warning: repeated cybersecurity-risk flags enabled additional safety checks. Trusted Access for Cyber or different authentication may be required.`,
 				);
 			}
 		},

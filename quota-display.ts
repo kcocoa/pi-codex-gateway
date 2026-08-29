@@ -2,6 +2,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { isCodexGpt } from "./codex-provider.ts";
 import type { CodexGatewayStreamEvent } from "./codex-sse.ts";
 import {
 	formatWindowLabel,
@@ -13,14 +14,10 @@ import {
 	remainingPercent,
 } from "./rate-limits.ts";
 
-const STATUS_KEY = "codex-gateway-quota";
+const STATUS_KEY = "codex-quota";
 
 export interface QuotaDisplaySupport {
 	handleStreamEvent(event: CodexGatewayStreamEvent): void;
-}
-
-function isCodexGatewayGpt(ctx: ExtensionContext): boolean {
-	return ctx.model?.provider === "codex-gateway" && /^gpt-/i.test(ctx.model.id);
 }
 
 function mergeSnapshot(
@@ -104,7 +101,7 @@ export function registerQuotaDisplaySupport(
 
 	const renderStatus = (ctx: ExtensionContext): void => {
 		if (!ctx.hasUI) return;
-		if (!isCodexGatewayGpt(ctx)) {
+		if (!isCodexGpt(ctx)) {
 			setStatus(ctx, undefined);
 			return;
 		}
@@ -164,11 +161,11 @@ export function registerQuotaDisplaySupport(
 
 	const formatDetails = (): string => {
 		if (snapshots.size === 0 && !promoMessage && !rateLimitReachedType) {
-			return "No Codex Gateway quota data has been observed in response headers or stream events yet.";
+			return "No Codex quota data has been observed in response headers or stream events yet.";
 		}
 
 		const lines = [
-			`Codex Gateway quota${lastUpdatedAt ? ` (updated ${new Date(lastUpdatedAt).toLocaleString()})` : ""}`,
+			`Codex quota${lastUpdatedAt ? ` (updated ${new Date(lastUpdatedAt).toLocaleString()})` : ""}`,
 		];
 		for (const snapshot of [...snapshots.values()].sort((a, b) =>
 			a.limitId.localeCompare(b.limitId),
@@ -197,8 +194,8 @@ export function registerQuotaDisplaySupport(
 		return lines.join("\n");
 	};
 
-	pi.registerCommand("codex-gateway:usage", {
-		description: "Show the latest Codex Gateway quota snapshot",
+	pi.registerCommand("codex:usage", {
+		description: "Show the latest Codex quota snapshot",
 		handler: async (_args, ctx) => {
 			ctx.ui.notify(formatDetails(), snapshots.size > 0 ? "info" : "warning");
 		},
@@ -206,7 +203,7 @@ export function registerQuotaDisplaySupport(
 
 	pi.on("session_start", (_event, ctx) => {
 		clearState();
-		activeContext = isCodexGatewayGpt(ctx) ? ctx : undefined;
+		activeContext = isCodexGpt(ctx) ? ctx : undefined;
 		setStatus(ctx, undefined);
 	});
 	pi.on("session_shutdown", (_event, ctx) => {
@@ -214,14 +211,15 @@ export function registerQuotaDisplaySupport(
 		setStatus(ctx, undefined);
 	});
 	pi.on("turn_start", (_event, ctx) => {
-		activeContext = isCodexGatewayGpt(ctx) ? ctx : undefined;
+		activeContext = isCodexGpt(ctx) ? ctx : undefined;
 	});
 	pi.on("model_select", (_event, ctx) => {
-		activeContext = isCodexGatewayGpt(ctx) ? ctx : undefined;
-		renderStatus(ctx);
+		clearState();
+		activeContext = isCodexGpt(ctx) ? ctx : undefined;
+		setStatus(ctx, undefined);
 	});
 	pi.on("after_provider_response", (event, ctx) => {
-		if (!isCodexGatewayGpt(ctx)) return;
+		if (!isCodexGpt(ctx)) return;
 		const update = parseRateLimitHeaders(event.headers);
 		if (update) applyUpdate(update, ctx);
 	});
@@ -229,7 +227,7 @@ export function registerQuotaDisplaySupport(
 	return {
 		handleStreamEvent(event) {
 			const ctx = activeContext;
-			if (!ctx || !isCodexGatewayGpt(ctx)) return;
+			if (!ctx || !isCodexGpt(ctx)) return;
 			const update = parseRateLimitStreamEvent(event);
 			if (update) applyUpdate(update, ctx);
 		},
