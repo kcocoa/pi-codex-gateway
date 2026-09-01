@@ -33,10 +33,19 @@ Override its endpoint in `~/.pi/agent/models.json`:
 ### `openai-codex`
 
 The extension preserves Pi's built-in model catalog and ChatGPT Plus/Pro OAuth.
-It overrides only `streamSimple`, delegates to Pi's official
-`openai-codex-responses` implementation, and forces SSE so optional raw Codex
-metadata can be observed. This disables the provider's WebSocket transport while
-the extension is loaded.
+It overrides only `streamSimple`, delegates request construction and response
+parsing to Pi's official `openai-codex-responses` implementation, and forces SSE
+so the extension can observe optional raw Codex stream events and HTTP response
+headers through Pi's supported `fetch` injection and provider hooks. The SSE body
+is passed through unchanged; the extension only performs a side-channel
+observation for quota, model-routing, and Cyber-warning signals.
+
+SSE is forced intentionally. Pi currently does not expose an equivalent public
+hook for raw WebSocket frames, so enabling WebSocket would require unsupported
+runtime interception or a local proxy and could make those optional features
+unreliable. See [docs/websocket.md](docs/websocket.md) for the WebSocket design,
+trade-offs, and implementation plan. This disables the provider's WebSocket
+transport while the extension is loaded.
 
 ## Layout
 
@@ -52,6 +61,7 @@ the extension is loaded.
 - `image-generation.ts`: provider-native image generation and persistence
 - `providers/codex-gateway.ts`: API-key gateway provider
 - `providers/openai-codex.ts`: official provider SSE observer
+- `docs/websocket.md`: WebSocket implementation plan and known difficulties
 
 ## Cyber warnings
 
