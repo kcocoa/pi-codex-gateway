@@ -1,7 +1,11 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { isCodexGpt } from "./codex-provider.ts";
+import {
+	type ExtensionAPI,
+	getAgentDir,
+	SettingsManager,
+} from "@earendil-works/pi-coding-agent";
+import { isCodexGpt, isOpenAICodexGpt } from "./codex-provider.ts";
 import { registerCyberWarningSupport } from "./cyber-warning.ts";
 import { registerCodexFastModeSupport } from "./fast-mode.ts";
 import {
@@ -44,7 +48,20 @@ export default async function codexExtension(pi: ExtensionAPI) {
 		if (!isCodexGpt(ctx)) return {};
 		return { skillPaths: [imageGenerationSkill] };
 	});
-	pi.on("session_start", (_event, ctx) => syncImageGenerationTool(pi, ctx));
+	pi.on("session_start", (_event, ctx) => {
+		syncImageGenerationTool(pi, ctx);
+		if (!isOpenAICodexGpt(ctx)) return;
+
+		const transport = SettingsManager.create(ctx.cwd, getAgentDir(), {
+			projectTrusted: ctx.isProjectTrusted(),
+		}).getTransport();
+		if (transport === "sse") return;
+
+		ctx.ui.notify(
+			`[pi-codex-gateway] OpenAI Codex is using ${transport} transport. Quota/usage updates and remote Cyber warnings are unavailable on WebSocket responses. To restore them: run /settings → Transport → SSE.`,
+			"warning",
+		);
+	});
 	pi.on("model_select", (_event, ctx) => syncImageGenerationTool(pi, ctx));
 
 	// Add Codex-native request fields to the existing provider request.

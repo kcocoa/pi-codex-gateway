@@ -1,8 +1,8 @@
 # Codex provider 迁移计划
 
-> 目标：复用 Pi 官方 provider 的全部请求与标准响应能力。Pi 官方实现负责请求构造、认证、请求 headers、重试、SSE transport、标准响应解析和高层消息生命周期；扩展只增加 Codex 功能，并通过一个透明的 SSE response-body event hook 观察附加事件。
+> 目标：复用 Pi 官方 provider 的全部请求与标准响应能力。Pi 官方实现负责请求构造、认证、请求 headers、重试、transport、标准响应解析和高层消息生命周期；扩展只增加 Codex 功能，并在 SSE 模式下通过透明的 SSE response-body event hook 观察附加事件。
 >
-> 当前范围只包含 SSE/HTTP response body 事件。
+> `openai-codex` 不再被扩展强制使用 SSE。非 SSE transport 由 Pi 官方实现处理，但由于扩展没有 WebSocket event observer，额度/用量和远端 Cyber warning 会提示为不可靠。
 
 ## 1. 最终架构
 
@@ -219,7 +219,7 @@ Cyber warning 也有两个来源：
 ### 6.1 `providers/openai-codex.ts`
 
 - [x] 继续调用 Pi 官方 `openAICodexResponsesApi()`。
-- [x] 继续强制 `transport: "sse"`，因为 body-event hook 依赖 HTTP response body。
+- [x] 不覆盖 Pi 的 transport 配置；SSE body-event hook 仅在 SSE/fallback 路径生效。
 - [x] wrapper 只做两件事：
   - [x] 传递官方 provider options；
   - [x] 将 `fetch` 替换为透明 SSE body event hook。
@@ -298,7 +298,7 @@ Cyber warning 也有两个来源：
 - [x] 更新 README 的 provider behavior：
   - [x] Pi 官方实现负责 HTTP request/standard response；
   - [x] 扩展只观察 SSE response body 附加事件；
-  - [x] 强制 SSE 是为了保持 response-body event 可观察；
+  - [x] SSE body-event hook 只在 SSE/fallback 路径保持 response-body event 可观察；
   - [x] fast 使用 request hook；
   - [x] quota/warning 同时可能来自 response headers 和 body events。
 - [x] 保持 transport 设计文档与本次 SSE body hook 迁移边界一致。

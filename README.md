@@ -35,19 +35,19 @@ Override its endpoint in `~/.pi/agent/models.json`:
 The extension preserves Pi's built-in model catalog and ChatGPT Plus/Pro OAuth.
 It overrides only `streamSimple`, delegates request construction, authentication,
 retry, transport, and standard response parsing to Pi's official
-`openai-codex-responses` implementation, and forces SSE so the extension can
-observe optional Codex response-body events through a transparent fetch hook.
-HTTP response headers are handled by Pi's `after_provider_response` lifecycle
-hook. The SSE body is passed through byte-for-byte unchanged; the extension only
-performs side-channel observation for quota, model-routing, and Cyber-warning
-signals.
+`openai-codex-responses` implementation. In SSE mode, a transparent fetch hook
+observes optional Codex response-body events while Pi continues to consume the
+same response bytes. HTTP response headers are handled by Pi's
+`after_provider_response` lifecycle hook. The extension only performs
+side-channel observation for quota, model-routing, and Cyber-warning signals.
 
-SSE is forced intentionally. Pi currently does not expose an equivalent public
-hook for raw WebSocket frames, so enabling WebSocket would require unsupported
-runtime interception or a local proxy and could make those optional features
-unreliable. See [docs/websocket.md](docs/websocket.md) for the WebSocket design,
-trade-offs, and implementation plan. This disables the provider's WebSocket
-transport while the extension is loaded.
+When the configured transport is not `sse`, the provider can use Pi's WebSocket
+transport, but the extension cannot observe the WebSocket frames. At session
+startup it explains that quota/usage updates and remote Cyber warnings are
+unavailable on WebSocket responses. Restore them with `/settings` → `Transport` →
+`SSE`, or set `"transport": "sse"` in `~/.pi/agent/settings.json` (or the project
+`.pi/settings.json`). See [docs/websocket.md](docs/websocket.md) for the transport
+trade-offs.
 
 ## Layout
 
@@ -63,7 +63,7 @@ transport while the extension is loaded.
 - `quota-display.ts`: footer status and detailed quota command
 - `image-generation.ts`: provider-native image generation and persistence
 - `providers/codex-gateway.ts`: API-key gateway provider
-- `providers/openai-codex.ts`: official provider SSE observer
+- `providers/openai-codex.ts`: official provider transport wrapper and SSE observer
 - `docs/websocket.md`: WebSocket implementation plan and known difficulties
 
 ## Cyber warnings

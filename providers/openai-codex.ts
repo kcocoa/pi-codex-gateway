@@ -20,7 +20,6 @@ export function registerOpenAICodexSupport(
 		streamSimple(model, context, options) {
 			return api.streamSimple(model, context, {
 				...(options ?? {}),
-				transport: "sse",
 				fetch: createSseEventTapFetch(
 					options?.fetch ?? globalThis.fetch,
 					onBodyEvent,

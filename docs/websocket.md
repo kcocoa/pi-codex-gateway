@@ -1,13 +1,17 @@
 # WebSocket 实施方案与困难
 
-> 状态：方案设计，当前扩展尚未启用 WebSocket 旁路观察。
+> 状态：`openai-codex` 不再强制使用 SSE；非 SSE 配置会启用 Pi 官方的
+> WebSocket transport，但当前扩展仍无法旁路观察 WebSocket 帧。因此启动时会
+> 提示额度/用量和远端 Cyber warning 在 WebSocket 响应中不可用。可通过
+> `/settings` → `Transport` → `SSE`，或在 `~/.pi/agent/settings.json` 中设置
+> `"transport": "sse"` 恢复。
 
 ## 1. 背景与结论
 
-`openai-codex` 当前通过 Pi 官方的 `openai-codex-responses` 实现发送请求，但在
-`providers/openai-codex.ts` 中强制设置了 `transport: "sse"`。原因不是 Codex
-WebSocket 缺少所需数据，而是 Pi 当前没有向扩展暴露 WebSocket 原始事件的正式
-观察接口。
+`openai-codex` 当前通过 Pi 官方的 `openai-codex-responses` 实现发送请求。
+`providers/openai-codex.ts` 不覆盖 Pi 传入的 transport 配置：`sse` 仍可使用
+当前的 SSE 旁路观察，`auto`、`websocket` 或 `websocket-cached` 则由 Pi 官方
+实现处理。原因是 Pi 当前没有向扩展暴露 WebSocket 原始事件的正式观察接口。
 
 OpenAI Codex 官方实现会在 WebSocket 中处理以下数据：
 
@@ -203,16 +207,16 @@ Pi -> local proxy -> chatgpt.com WebSocket
 
 这会把一个观察需求扩大为完整协议实现，不符合本扩展“尽量复用官方实现”的目标。
 
-## 8. 分阶段实施计划
+## 8. 当前状态与后续计划
 
-### 阶段一：保持 SSE 默认
+### 当前 transport 行为
 
-- 保留 `transport: "sse"`；
-- 继续使用 `createSseEventTapFetch()`；
-- 确保所有现有测试覆盖 metadata、额度、错误 headers 和模型路由；
-- 在文档中明确 WebSocket 观察尚未启用。
+- `transport: "sse"`：使用 `createSseEventTapFetch()`，保留完整的现有观察能力；
+- `transport: "auto"`、`"websocket"` 或 `"websocket-cached"`：由 Pi 官方实现处理，扩展不观察 WebSocket 帧；
+- 非 SSE 配置在启动时提示额度/用量和远端 Cyber warning 不可靠。
 
-### 阶段二：抽象统一事件处理
+### 后续计划
+
 
 把 SSE 观察器和未来 WebSocket 观察器都接入同一个：
 
