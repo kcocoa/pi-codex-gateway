@@ -24,12 +24,12 @@ export default async function codexExtension(pi: ExtensionAPI) {
 	const cyberWarnings = await registerCyberWarningSupport(pi);
 	const fastMode = await registerCodexFastModeSupport(pi);
 	const quotaDisplay = registerQuotaDisplaySupport(pi);
-	const handleStreamEvent = (event: Record<string, unknown>): void => {
-		cyberWarnings.handleStreamEvent(event);
-		quotaDisplay.handleStreamEvent(event);
+	const handleBodyEvent = (event: Record<string, unknown>): void => {
+		cyberWarnings.handleBodyEvent(event);
+		quotaDisplay.handleBodyEvent(event);
 	};
-	pi.registerProvider(codexGatewayProvider(handleStreamEvent));
-	registerOpenAICodexSupport(pi, handleStreamEvent);
+	pi.registerProvider(codexGatewayProvider(handleBodyEvent));
+	registerOpenAICodexSupport(pi, handleBodyEvent);
 	registerImageGeneration(pi);
 
 	// The imagegen skill and image_gen tool are available only for Codex GPT models.
@@ -49,7 +49,8 @@ export default async function codexExtension(pi: ExtensionAPI) {
 			? (payload.tools as Array<{ type?: string }>)
 			: [];
 		const hasWebSearch = tools.some(
-			(tool) => tool.type === "web_search" || tool.type === "web_search_preview",
+			(tool) =>
+				tool.type === "web_search" || tool.type === "web_search_preview",
 		);
 
 		return {

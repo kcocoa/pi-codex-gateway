@@ -1,9 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { CODEX_GATEWAY_ERROR_RESPONSE_EVENT } from "./codex-sse.ts";
 import {
 	formatWindowLabel,
+	parseRateLimitBodyEvent,
 	parseRateLimitHeaders,
-	parseRateLimitStreamEvent,
 	remainingPercent,
 } from "./rate-limits.ts";
 
@@ -88,18 +87,15 @@ describe("Codex rate limits", () => {
 		expect(update?.snapshots).toEqual([{ limitId: "codex" }]);
 	});
 
-	it("parses quota headers captured from failed provider responses", () => {
+	it("parses quota headers from any provider response status", () => {
 		expect(
-			parseRateLimitStreamEvent({
-				type: CODEX_GATEWAY_ERROR_RESPONSE_EVENT,
-				status: 429,
-				headers: {
-					"x-codex-primary-used-percent": "100",
-					"x-codex-primary-window-minutes": "300",
-					"x-codex-promo-message": "Try another model",
-				},
+			parseRateLimitHeaders({
+				"x-codex-primary-used-percent": "100",
+				"x-codex-primary-window-minutes": "300",
+				"x-codex-promo-message": "Try another model",
 			}),
 		).toMatchObject({
+			source: "response_headers",
 			promoMessage: "Try another model",
 			snapshots: [
 				{
@@ -109,10 +105,9 @@ describe("Codex rate limits", () => {
 			],
 		});
 	});
-
-	it("parses optional codex.rate_limits stream events", () => {
+	it("parses optional codex.rate_limits body events", () => {
 		expect(
-			parseRateLimitStreamEvent({
+			parseRateLimitBodyEvent({
 				type: "codex.rate_limits",
 				plan_type: "plus",
 				metered_limit_name: "codex-code-review",
@@ -127,6 +122,7 @@ describe("Codex rate limits", () => {
 				credits: { has_credits: true, unlimited: false, balance: "4.25" },
 			}),
 		).toEqual({
+			source: "sse_body_event",
 			snapshots: [
 				{
 					limitId: "codex_code_review",

@@ -43,7 +43,7 @@ WebSocket 方案必须满足：
 
 SSE 目前使用的是正式的 `fetch` 注入点，不需要全局 monkey patch：
 
-- `createObservedFetch()` 调用原始 `fetch`；
+- `createSseEventTapFetch()` 调用原始 `fetch`；
 - 对 SSE response body 增加 `TransformStream`；
 - 旁路解析 JSON 事件；
 - 将原始字节继续传递给 Pi 官方 SSE 解析器；
@@ -79,7 +79,7 @@ WebSocket 共用同一个接口，扩展就不需要重复实现两套协议解�
 - 不污染全局运行时；
 - 事件天然带有 model/session/transport 上下文；
 - 可以正确处理连接复用和并发；
-- 扩展只需复用现有的 `handleStreamEvent()`。
+- 扩展只需复用现有的 `handleBodyEvent()`。
 
 这是长期维护的首选方案。它可以作为一个小型上游 PR，而不是维护 Pi fork。
 
@@ -208,7 +208,7 @@ Pi -> local proxy -> chatgpt.com WebSocket
 ### 阶段一：保持 SSE 默认
 
 - 保留 `transport: "sse"`；
-- 继续使用 `createObservedFetch()`；
+- 继续使用 `createSseEventTapFetch()`；
 - 确保所有现有测试覆盖 metadata、额度、错误 headers 和模型路由；
 - 在文档中明确 WebSocket 观察尚未启用。
 
@@ -217,7 +217,7 @@ Pi -> local proxy -> chatgpt.com WebSocket
 把 SSE 观察器和未来 WebSocket 观察器都接入同一个：
 
 ```ts
-CodexGatewayStreamEventHandler
+SseBodyEventHandler
 ```
 
 观察器只负责捕获事件，`codex-signals.ts`、`rate-limits.ts` 和 warning/quota

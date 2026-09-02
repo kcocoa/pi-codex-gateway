@@ -1,9 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-	CODEX_GATEWAY_ERROR_RESPONSE_EVENT,
-	createObservedFetch,
-	createSseJsonDecoder,
-} from "./codex-sse.ts";
+import { createSseEventTapFetch, createSseJsonDecoder } from "./codex-sse.ts";
 
 describe("Codex SSE observation", () => {
 	it("decodes JSON events across chunk and CRLF boundaries", () => {
@@ -35,7 +31,7 @@ describe("Codex SSE observation", () => {
 				status: 200,
 				headers: { "content-type": "text/event-stream" },
 			})) as typeof globalThis.fetch;
-		const response = await createObservedFetch(baseFetch, (event) =>
+		const response = await createSseEventTapFetch(baseFetch, (event) =>
 			events.push(event),
 		)("https://example.test");
 
@@ -55,31 +51,50 @@ describe("Codex SSE observation", () => {
 			headers: { "content-type": "application/json" },
 		});
 		const baseFetch = (async () => original) as typeof globalThis.fetch;
-		const observed = await createObservedFetch(baseFetch, () => {
+		const observed = await createSseEventTapFetch(baseFetch, () => {
 			throw new Error("should not run");
 		})("https://example.test");
 		expect(observed).toBe(original);
 		expect(await observed.text()).toBe("ok");
 	});
 
-	it("exposes headers from non-success responses before the SDK throws", async () => {
-		const original = new Response("limited", {
-			status: 429,
-			headers: { "x-codex-active-limit": "codex_other" },
-		});
+	it("keeps body bytes unchanged when the observer throws", async () => {
+		const originalText = 'data: {"type":"codex.rate_limits"}\r\n\r\n';
+		const baseFetch = (async () =>
+			new Response(originalText, {
+				status: 429,
+				headers: { "content-type": "text/event-stream" },
+			})) as typeof globalThis.fetch;
+		const observed = await createSseEventTapFetch(baseFetch, () => {
+			throw new Error("observer failure");
+		})("https://example.test");
+
+		expect(observed.status).toBe(429);
+		expect(observed.headers.get("content-type")).toContain("text/event-stream");
+		expect(await observed.text()).toBe(originalText);
+	});
+
+	it("observes a UTF-8 event split across byte chunks", async () => {
+		const text = 'data: {"type":"response.metadata","label":"é"}\n\n';
+		const bytes = new TextEncoder().encode(text);
+		const split = text.indexOf("é");
 		const events: Array<Record<string, unknown>> = [];
-		const baseFetch = (async () => original) as typeof globalThis.fetch;
-		const observed = await createObservedFetch(baseFetch, (event) =>
+		const body = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(bytes.slice(0, split + 1));
+				controller.enqueue(bytes.slice(split + 1));
+				controller.close();
+			},
+		});
+		const baseFetch = (async () =>
+			new Response(body, {
+				headers: { "content-type": "text/event-stream" },
+			})) as typeof globalThis.fetch;
+
+		const response = await createSseEventTapFetch(baseFetch, (event) =>
 			events.push(event),
 		)("https://example.test");
-
-		expect(observed).toBe(original);
-		expect(events).toEqual([
-			{
-				type: CODEX_GATEWAY_ERROR_RESPONSE_EVENT,
-				status: 429,
-				headers: { "x-codex-active-limit": "codex_other" },
-			},
-		]);
+		expect(await response.text()).toBe(text);
+		expect(events).toEqual([{ type: "response.metadata", label: "é" }]);
 	});
 });

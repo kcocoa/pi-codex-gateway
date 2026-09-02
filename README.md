@@ -33,12 +33,14 @@ Override its endpoint in `~/.pi/agent/models.json`:
 ### `openai-codex`
 
 The extension preserves Pi's built-in model catalog and ChatGPT Plus/Pro OAuth.
-It overrides only `streamSimple`, delegates request construction and response
-parsing to Pi's official `openai-codex-responses` implementation, and forces SSE
-so the extension can observe optional raw Codex stream events and HTTP response
-headers through Pi's supported `fetch` injection and provider hooks. The SSE body
-is passed through unchanged; the extension only performs a side-channel
-observation for quota, model-routing, and Cyber-warning signals.
+It overrides only `streamSimple`, delegates request construction, authentication,
+retry, transport, and standard response parsing to Pi's official
+`openai-codex-responses` implementation, and forces SSE so the extension can
+observe optional Codex response-body events through a transparent fetch hook.
+HTTP response headers are handled by Pi's `after_provider_response` lifecycle
+hook. The SSE body is passed through byte-for-byte unchanged; the extension only
+performs side-channel observation for quota, model-routing, and Cyber-warning
+signals.
 
 SSE is forced intentionally. Pi currently does not expose an equivalent public
 hook for raw WebSocket frames, so enabling WebSocket would require unsupported
@@ -52,9 +54,10 @@ transport while the extension is loaded.
 - `index.ts`: registration and provider-scoped capabilities
 - `codex-config.ts`: shared `codex.json` preference storage
 - `codex-provider.ts`: shared provider matching
-- `codex-sse.ts`: transparent observation of optional SSE events
+- `codex-sse.ts`: transparent SSE response-body event hook
 - `codex-signals.ts`: server-model and cyber recommendation parsing
-- `cyber-warning.ts`: warning policy and persistent setting
+- `cyber-warning-policy.ts`: testable warning decisions and deduplication keys
+- `cyber-warning.ts`: warning policy integration and persistent setting
 - `fast-mode.ts`: persistent `/codex:fast` command
 - `rate-limits.ts`: quota header/event parsing
 - `quota-display.ts`: footer status and detailed quota command
@@ -97,12 +100,12 @@ shows `fast⚡`.
 ## Quota display
 
 For either provider, quota data is parsed from normal response headers and
-optional stream events:
+optional SSE response-body events:
 
 - `x-<limit>-primary-*` and `x-<limit>-secondary-*`;
 - `x-codex-plan-type`, `x-codex-credits-*`, `x-codex-active-limit`, promo,
   and reached-type headers;
-- `codex.rate_limits` events.
+- `codex.rate_limits` SSE body events.
 
 The footer shows the normalized subscription type, remaining percentages, and
 compact reset countdowns, for example

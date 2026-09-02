@@ -4,17 +4,21 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { readCodexConfig, updateCodexConfig } from "./codex-config.ts";
 import { codexProviderLabel, isCodexGpt } from "./codex-provider.ts";
-import type { CodexGatewayStreamEvent } from "./codex-sse.ts";
 import {
+	getServerModelFromBodyEvent,
 	getServerModelFromResponseHeaders,
-	getServerModelFromStreamEvent,
 	hasTrustedAccessForCyberRecommendation,
 } from "./codex-signals.ts";
-
-export type CyberWarningAction = "warn" | "stop" | "stop-after-repeat";
+import type { SseBodyEvent } from "./codex-sse.ts";
+import {
+	type CyberWarningAction,
+	REPEATED_WARNING_LIMIT,
+	serverModelWarningKey,
+	shouldStopCyberWarning,
+	TRUSTED_ACCESS_WARNING_KEY,
+} from "./cyber-warning-policy.ts";
 
 const DEFAULT_ACTION: CyberWarningAction = "warn";
-const REPEATED_WARNING_LIMIT = 2;
 
 const ACTION_LABELS: Record<CyberWarningAction, string> = {
 	warn: "Show warnings only",
@@ -24,16 +28,24 @@ const ACTION_LABELS: Record<CyberWarningAction, string> = {
 const ACTIONS = Object.keys(ACTION_LABELS) as CyberWarningAction[];
 
 export interface CyberWarningSupport {
-	handleStreamEvent(event: CodexGatewayStreamEvent): void;
+	handleResponseHeaders(
+		headers: Record<string, string>,
+		ctx: ExtensionContext,
+	): void;
+	handleBodyEvent(event: SseBodyEvent, ctx?: ExtensionContext): void;
 }
 
 function isCyberWarningAction(value: unknown): value is CyberWarningAction {
 	return value === "warn" || value === "stop" || value === "stop-after-repeat";
 }
 
-export async function registerCyberWarningSupport(pi: ExtensionAPI): Promise<CyberWarningSupport> {
+export async function registerCyberWarningSupport(
+	pi: ExtensionAPI,
+): Promise<CyberWarningSupport> {
 	const config = await readCodexConfig();
-	let action = isCyberWarningAction(config.cyberWarningAction) ? config.cyberWarningAction : DEFAULT_ACTION;
+	let action = isCyberWarningAction(config.cyberWarningAction)
+		? config.cyberWarningAction
+		: DEFAULT_ACTION;
 	let activeContext: ExtensionContext | undefined;
 	let requestedModel: string | undefined;
 	let warnedTurns = 0;
@@ -50,7 +62,11 @@ export async function registerCyberWarningSupport(pi: ExtensionAPI): Promise<Cyb
 		warningKeys.clear();
 	};
 
-	const notifyWarning = (ctx: ExtensionContext, key: string, message: string): void => {
+	const notifyWarning = (
+		ctx: ExtensionContext,
+		key: string,
+		message: string,
+	): void => {
 		if (warningKeys.has(key) || abortingCurrentTurn) return;
 		warningKeys.add(key);
 
@@ -59,8 +75,7 @@ export async function registerCyberWarningSupport(pi: ExtensionAPI): Promise<Cyb
 			countedCurrentTurn = true;
 		}
 
-		const shouldStop = action === "stop" ||
-			(action === "stop-after-repeat" && warnedTurns >= REPEATED_WARNING_LIMIT);
+		const shouldStop = shouldStopCyberWarning(action, warnedTurns);
 		const suffix = shouldStop
 			? " Stopping the current turn; switch model or authentication before retrying."
 			: action === "stop-after-repeat"
@@ -74,12 +89,16 @@ export async function registerCyberWarningSupport(pi: ExtensionAPI): Promise<Cyb
 		}
 	};
 
-	const handleServerModel = (ctx: ExtensionContext, serverModel: string): void => {
+	const handleServerModel = (
+		ctx: ExtensionContext,
+		serverModel: string,
+	): void => {
 		const fromModel = requestedModel ?? ctx.model?.id;
-		if (!fromModel || fromModel.toLowerCase() === serverModel.toLowerCase()) return;
+		if (!fromModel || fromModel.toLowerCase() === serverModel.toLowerCase())
+			return;
 		notifyWarning(
 			ctx,
-			`reroute:${fromModel.toLowerCase()}:${serverModel.toLowerCase()}`,
+			serverModelWarningKey(fromModel, serverModel),
 			`${codexProviderLabel(ctx.model?.provider)} cyber warning: requested ${fromModel}, but the server routed this turn to ${serverModel}.`,
 		);
 	};
@@ -91,7 +110,10 @@ export async function registerCyberWarningSupport(pi: ExtensionAPI): Promise<Cyb
 			let nextAction: CyberWarningAction | undefined;
 			if (requestedAction) {
 				if (!isCyberWarningAction(requestedAction)) {
-					ctx.ui.notify("Expected one of: warn, stop, stop-after-repeat", "error");
+					ctx.ui.notify(
+						"Expected one of: warn, stop, stop-after-repeat",
+						"error",
+					);
 					return;
 				}
 				nextAction = requestedAction;
@@ -126,27 +148,37 @@ export async function registerCyberWarningSupport(pi: ExtensionAPI): Promise<Cyb
 		warningKeys.clear();
 	});
 
-	pi.on("after_provider_response", (event, ctx) => {
+	const handleResponseHeaders = (
+		headers: Record<string, string>,
+		ctx: ExtensionContext,
+	): void => {
 		if (!isCodexGpt(ctx)) return;
-		const serverModel = getServerModelFromResponseHeaders(event.headers);
+		const serverModel = getServerModelFromResponseHeaders(headers);
 		if (serverModel) handleServerModel(ctx, serverModel);
+	};
+
+	const handleBodyEvent = (
+		event: SseBodyEvent,
+		ctxOverride?: ExtensionContext,
+	): void => {
+		// activeContext is only ever assigned from a Codex GPT context.
+		const ctx = ctxOverride ?? activeContext;
+		if (!ctx || !isCodexGpt(ctx)) return;
+
+		const serverModel = getServerModelFromBodyEvent(event);
+		if (serverModel) handleServerModel(ctx, serverModel);
+		if (hasTrustedAccessForCyberRecommendation(event)) {
+			notifyWarning(
+				ctx,
+				TRUSTED_ACCESS_WARNING_KEY,
+				`${codexProviderLabel(ctx.model?.provider)} cyber warning: repeated cybersecurity-risk flags enabled additional safety checks. Trusted Access for Cyber or different authentication may be required.`,
+			);
+		}
+	};
+
+	pi.on("after_provider_response", (event, ctx) => {
+		handleResponseHeaders(event.headers, ctx);
 	});
 
-	return {
-		handleStreamEvent(event) {
-			// activeContext is only ever assigned from a Codex GPT context.
-			const ctx = activeContext;
-			if (!ctx) return;
-
-			const serverModel = getServerModelFromStreamEvent(event);
-			if (serverModel) handleServerModel(ctx, serverModel);
-			if (hasTrustedAccessForCyberRecommendation(event)) {
-				notifyWarning(
-					ctx,
-					"trusted-access-for-cyber",
-					`${codexProviderLabel(ctx.model?.provider)} cyber warning: repeated cybersecurity-risk flags enabled additional safety checks. Trusted Access for Cyber or different authentication may be required.`,
-				);
-			}
-		},
-	};
+	return { handleResponseHeaders, handleBodyEvent };
 }

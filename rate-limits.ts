@@ -1,7 +1,4 @@
-import {
-	CODEX_GATEWAY_ERROR_RESPONSE_EVENT,
-	type CodexGatewayStreamEvent,
-} from "./codex-sse.ts";
+import type { SseBodyEvent } from "./codex-sse.ts";
 
 export interface RateLimitWindow {
 	usedPercent: number;
@@ -24,7 +21,10 @@ export interface RateLimitSnapshot {
 	planType?: string;
 }
 
+export type RateLimitUpdateSource = "response_headers" | "sse_body_event";
+
 export interface RateLimitUpdate {
+	source: RateLimitUpdateSource;
 	snapshots: RateLimitSnapshot[];
 	activeLimitId?: string;
 	promoMessage?: string;
@@ -185,6 +185,7 @@ export function parseRateLimitHeaders(
 		);
 
 	return {
+		source: "response_headers",
 		snapshots,
 		activeLimitId: activeLimitId ? normalizeLimitId(activeLimitId) : undefined,
 		promoMessage: trimmed(normalized.get("x-codex-promo-message")),
@@ -228,16 +229,9 @@ function parseEventCredits(value: unknown): CreditsSnapshot | undefined {
 	};
 }
 
-export function parseRateLimitStreamEvent(
-	event: CodexGatewayStreamEvent,
+export function parseRateLimitBodyEvent(
+	event: SseBodyEvent,
 ): RateLimitUpdate | undefined {
-	if (event.type === CODEX_GATEWAY_ERROR_RESPONSE_EVENT) {
-		// These events are built by createObservedFetch with string header values.
-		const headers = asRecord(event.headers);
-		return headers
-			? parseRateLimitHeaders(headers as Record<string, string>)
-			: undefined;
-	}
 	if (event.type !== "codex.rate_limits") return undefined;
 	const limits = asRecord(event.rate_limits);
 	const rawLimitId =
@@ -257,7 +251,7 @@ export function parseRateLimitStreamEvent(
 				? trimmed(event.plan_type)
 				: undefined,
 	};
-	return { snapshots: [snapshot] };
+	return { source: "sse_body_event", snapshots: [snapshot] };
 }
 
 export function remainingPercent(window: RateLimitWindow): number {

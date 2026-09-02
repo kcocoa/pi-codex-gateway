@@ -119,10 +119,7 @@ describe("Codex quota display", () => {
 			ctx,
 		);
 
-		expect(setStatus.mock.calls.at(-1)).toEqual([
-			"codex-quota",
-			"5h:75%",
-		]);
+		expect(setStatus.mock.calls.at(-1)).toEqual(["codex-quota", "5h:75%"]);
 	});
 
 	it("shows the subscription and compact reset countdowns", async () => {
@@ -139,9 +136,7 @@ describe("Codex quota display", () => {
 					"x-codex-plan-type": "prolite",
 					"x-codex-primary-used-percent": "25",
 					"x-codex-primary-window-minutes": "300",
-					"x-codex-primary-reset-at": String(
-						now + 3 * 3_600 + 44 * 60 + 20,
-					),
+					"x-codex-primary-reset-at": String(now + 3 * 3_600 + 44 * 60 + 20),
 					"x-codex-secondary-used-percent": "50",
 					"x-codex-secondary-window-minutes": "10080",
 					"x-codex-secondary-reset-at": String(
@@ -179,10 +174,7 @@ describe("Codex quota display", () => {
 			ctx,
 		);
 
-		expect(setStatus.mock.calls.at(-1)).toEqual([
-			"codex-quota",
-			"5h:80%",
-		]);
+		expect(setStatus.mock.calls.at(-1)).toEqual(["codex-quota", "5h:80%"]);
 	});
 
 	it("hides credit balances when no rate-limit windows are available", async () => {
@@ -204,26 +196,86 @@ describe("Codex quota display", () => {
 			ctx,
 		);
 
-		expect(setStatus.mock.calls.at(-1)).toEqual([
-			"codex-quota",
-			undefined,
-		]);
+		expect(setStatus.mock.calls.at(-1)).toEqual(["codex-quota", undefined]);
 	});
 
-	it("accepts optional codex.rate_limits stream events", async () => {
+	it("accepts optional codex.rate_limits body events", async () => {
 		const harness = createHarness();
 		const support = registerQuotaDisplaySupport(harness.pi);
 		const { ctx, setStatus } = createContext();
 		await harness.emit("turn_start", { type: "turn_start" }, ctx);
-		support.handleStreamEvent({
+		support.handleBodyEvent({
 			type: "codex.rate_limits",
 			rate_limits: { primary: { used_percent: 30, window_minutes: 60 } },
 		});
 
+		expect(setStatus.mock.calls.at(-1)).toEqual(["codex-quota", "1h:70%"]);
+	});
+
+	it("merges header and body snapshots without losing window data", async () => {
+		const harness = createHarness();
+		const support = registerQuotaDisplaySupport(harness.pi);
+		const { ctx, setStatus } = createContext();
+		support.handleBodyEvent(
+			{
+				type: "codex.rate_limits",
+				rate_limits: { primary: { used_percent: 20, window_minutes: 300 } },
+			},
+			ctx,
+		);
+		support.handleResponseHeaders(
+			{
+				"x-codex-secondary-used-percent": "50",
+				"x-codex-secondary-window-minutes": "10080",
+			},
+			ctx,
+		);
+
 		expect(setStatus.mock.calls.at(-1)).toEqual([
 			"codex-quota",
-			"1h:70%",
+			"5h:80% 7d:50%",
 		]);
+	});
+
+	it("treats identical header/body snapshots as idempotent", () => {
+		const harness = createHarness();
+		const support = registerQuotaDisplaySupport(harness.pi);
+		const { ctx, setStatus } = createContext();
+		const headers = {
+			"x-codex-primary-used-percent": "20",
+			"x-codex-primary-window-minutes": "300",
+		};
+		support.handleResponseHeaders(headers, ctx);
+		const callsAfterHeader = setStatus.mock.calls.length;
+		support.handleBodyEvent(
+			{
+				type: "codex.rate_limits",
+				rate_limits: { primary: { used_percent: 20, window_minutes: 300 } },
+			},
+			ctx,
+		);
+		expect(setStatus.mock.calls.length).toBe(callsAfterHeader);
+	});
+
+	it("applies sequential retry snapshots in observation order", () => {
+		const harness = createHarness();
+		const support = registerQuotaDisplaySupport(harness.pi);
+		const { ctx, setStatus } = createContext();
+		support.handleResponseHeaders(
+			{
+				"x-codex-primary-used-percent": "80",
+				"x-codex-primary-window-minutes": "300",
+			},
+			ctx,
+		);
+		support.handleResponseHeaders(
+			{
+				"x-codex-primary-used-percent": "30",
+				"x-codex-primary-window-minutes": "300",
+			},
+			ctx,
+		);
+		expect(setStatus.mock.calls.at(-1)).toEqual(["codex-quota", "5h:70%"]);
 	});
 
 	it("clears its footer status when another provider is selected", async () => {

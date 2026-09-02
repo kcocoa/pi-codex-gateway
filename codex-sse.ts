@@ -1,33 +1,32 @@
-export type CodexGatewayStreamEvent = Record<string, unknown>;
-export type CodexGatewayStreamEventHandler = (
-	event: CodexGatewayStreamEvent,
-) => void;
+/**
+ * A parsed JSON object observed from an SSE response body.
+ *
+ * This module is deliberately only a response-body observation hook. The
+ * provider that owns the request still owns the original fetch, response,
+ * retry/abort behavior, and standard response parsing.
+ */
+export type SseBodyEvent = Record<string, unknown>;
+export type SseBodyEventHandler = (event: SseBodyEvent) => void;
 
-export const CODEX_GATEWAY_ERROR_RESPONSE_EVENT =
-	"codex.gateway.error_response";
-
-function parseSseData(block: string): CodexGatewayStreamEvent | undefined {
+function parseSseData(block: string): SseBodyEvent | undefined {
 	const data = block
 		.split(/\r?\n/)
 		.filter((line) => line.startsWith("data:"))
 		.map((line) => line.slice(5).replace(/^ /, ""))
 		.join("\n");
-	if (!data || data === "[DONE]") return undefined;
+	if (!data || data.trim() === "[DONE]") return undefined;
 
 	try {
 		const event = JSON.parse(data) as unknown;
 		return event && typeof event === "object" && !Array.isArray(event)
-			? (event as CodexGatewayStreamEvent)
+			? (event as SseBodyEvent)
 			: undefined;
 	} catch {
 		return undefined;
 	}
 }
 
-function safeEmit(
-	onEvent: CodexGatewayStreamEventHandler,
-	event: CodexGatewayStreamEvent,
-): void {
+function safeEmit(onEvent: SseBodyEventHandler, event: SseBodyEvent): void {
 	try {
 		onEvent(event);
 	} catch {
@@ -35,7 +34,8 @@ function safeEmit(
 	}
 }
 
-export function createSseJsonDecoder(onEvent: CodexGatewayStreamEventHandler) {
+/** Decode SSE framing for observation without retaining the response body. */
+export function createSseJsonDecoder(onEvent: SseBodyEventHandler) {
 	let buffer = "";
 
 	const dispatch = (block: string): void => {
@@ -66,19 +66,21 @@ export function createSseJsonDecoder(onEvent: CodexGatewayStreamEventHandler) {
 	};
 }
 
-export function createObservedFetch(
+/**
+ * Wrap fetch with a transparent SSE response-body event tap.
+ *
+ * The original fetch receives the exact input and init values. Non-SSE
+ * responses are returned unchanged. SSE bytes are enqueued unchanged while a
+ * UTF-8/SSE decoder observes JSON data events on the side. This hook never
+ * reads response headers for business purposes and never returns a replacement
+ * response to the provider.
+ */
+export function createSseEventTapFetch(
 	baseFetch: typeof globalThis.fetch,
-	onEvent: CodexGatewayStreamEventHandler,
+	onEvent: SseBodyEventHandler,
 ): typeof globalThis.fetch {
 	return (async (input: RequestInfo | URL, init?: RequestInit) => {
 		const response = await baseFetch(input, init);
-		if (!response.ok) {
-			safeEmit(onEvent, {
-				type: CODEX_GATEWAY_ERROR_RESPONSE_EVENT,
-				status: response.status,
-				headers: Object.fromEntries(response.headers.entries()),
-			});
-		}
 		if (
 			!response.body ||
 			!response.headers
@@ -93,12 +95,20 @@ export function createObservedFetch(
 		const events = createSseJsonDecoder(onEvent);
 		const transform = new TransformStream<Uint8Array, Uint8Array>({
 			transform(chunk, controller) {
-				events.push(decoder.decode(chunk, { stream: true }));
+				try {
+					events.push(decoder.decode(chunk, { stream: true }));
+				} catch {
+					// Decoding is best-effort; the original bytes still pass through.
+				}
 				controller.enqueue(chunk);
 			},
 			flush() {
-				events.push(decoder.decode());
-				events.finish();
+				try {
+					events.push(decoder.decode());
+					events.finish();
+				} catch {
+					// Observation is fail-open, including stream finalization.
+				}
 			},
 		});
 

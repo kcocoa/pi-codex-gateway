@@ -3,11 +3,11 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { isCodexGpt } from "./codex-provider.ts";
-import type { CodexGatewayStreamEvent } from "./codex-sse.ts";
+import type { SseBodyEvent } from "./codex-sse.ts";
 import {
 	formatWindowLabel,
+	parseRateLimitBodyEvent,
 	parseRateLimitHeaders,
-	parseRateLimitStreamEvent,
 	type RateLimitSnapshot,
 	type RateLimitUpdate,
 	type RateLimitWindow,
@@ -17,7 +17,11 @@ import {
 const STATUS_KEY = "codex-quota";
 
 export interface QuotaDisplaySupport {
-	handleStreamEvent(event: CodexGatewayStreamEvent): void;
+	handleResponseHeaders(
+		headers: Record<string, string>,
+		ctx: ExtensionContext,
+	): void;
+	handleBodyEvent(event: SseBodyEvent, ctx?: ExtensionContext): void;
 }
 
 function mergeSnapshot(
@@ -25,11 +29,20 @@ function mergeSnapshot(
 	next: RateLimitSnapshot,
 ): RateLimitSnapshot {
 	return {
-		...next,
+		limitId: next.limitId,
 		limitName: next.limitName ?? previous?.limitName,
+		primary: next.primary ?? previous?.primary,
+		secondary: next.secondary ?? previous?.secondary,
 		credits: next.credits ?? previous?.credits,
 		planType: next.planType ?? previous?.planType,
 	};
+}
+
+function sameSnapshot(
+	left: RateLimitSnapshot | undefined,
+	right: RateLimitSnapshot,
+): boolean {
+	return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function severityColor(window: RateLimitWindow): "dim" | "warning" | "error" {
@@ -183,24 +196,54 @@ export function registerQuotaDisplaySupport(
 		update: RateLimitUpdate,
 		ctx: ExtensionContext,
 	): void => {
-		const now = Date.now();
+		// Provider callbacks are synchronous and arrive in response/retry order.
+		// Merge partial snapshots instead of replacing them so a later retry or
+		// a duplicate source cannot regress fields that were already observed.
+		let changed = false;
 		for (const snapshot of update.snapshots) {
 			const previous = snapshots.get(snapshot.limitId);
-			snapshots.set(snapshot.limitId, mergeSnapshot(previous, snapshot));
+			const merged = mergeSnapshot(previous, snapshot);
+			if (!sameSnapshot(previous, merged)) {
+				snapshots.set(snapshot.limitId, merged);
+				changed = true;
+			}
 		}
-		activeLimitId = update.activeLimitId ?? activeLimitId;
-		planType =
-			update.snapshots.find((snapshot) => snapshot.planType)?.planType ??
-			planType;
-		promoMessage = update.promoMessage ?? promoMessage;
-		rateLimitReachedType = update.rateLimitReachedType ?? rateLimitReachedType;
-		lastUpdatedAt = now;
+		if (
+			update.activeLimitId !== undefined &&
+			update.activeLimitId !== activeLimitId
+		) {
+			activeLimitId = update.activeLimitId;
+			changed = true;
+		}
+		const nextPlanType = update.snapshots.find(
+			(snapshot) => snapshot.planType,
+		)?.planType;
+		if (nextPlanType !== undefined && nextPlanType !== planType) {
+			planType = nextPlanType;
+			changed = true;
+		}
+		if (
+			update.promoMessage !== undefined &&
+			update.promoMessage !== promoMessage
+		) {
+			promoMessage = update.promoMessage;
+			changed = true;
+		}
+		if (
+			update.rateLimitReachedType !== undefined &&
+			update.rateLimitReachedType !== rateLimitReachedType
+		) {
+			rateLimitReachedType = update.rateLimitReachedType;
+			changed = true;
+		}
+		if (!changed) return;
+		lastUpdatedAt = Date.now();
 		renderStatus(ctx);
 	};
 
 	const formatDetails = (): string => {
 		if (snapshots.size === 0 && !promoMessage && !rateLimitReachedType) {
-			return "No Codex quota data has been observed in response headers or stream events yet.";
+			return "No Codex quota data has been observed in response headers or SSE body events yet.";
 		}
 
 		const lines = [
@@ -259,18 +302,28 @@ export function registerQuotaDisplaySupport(
 		activeContext = isCodexGpt(ctx) ? ctx : undefined;
 		setStatus(ctx, undefined);
 	});
-	pi.on("after_provider_response", (event, ctx) => {
+	const handleResponseHeaders = (
+		headers: Record<string, string>,
+		ctx: ExtensionContext,
+	): void => {
 		if (!isCodexGpt(ctx)) return;
-		const update = parseRateLimitHeaders(event.headers);
+		const update = parseRateLimitHeaders(headers);
 		if (update) applyUpdate(update, ctx);
+	};
+
+	const handleBodyEvent = (
+		event: SseBodyEvent,
+		ctx?: ExtensionContext,
+	): void => {
+		const active = ctx ?? activeContext;
+		if (!active || !isCodexGpt(active)) return;
+		const update = parseRateLimitBodyEvent(event);
+		if (update) applyUpdate(update, active);
+	};
+
+	pi.on("after_provider_response", (event, ctx) => {
+		handleResponseHeaders(event.headers, ctx);
 	});
 
-	return {
-		handleStreamEvent(event) {
-			const ctx = activeContext;
-			if (!ctx || !isCodexGpt(ctx)) return;
-			const update = parseRateLimitStreamEvent(event);
-			if (update) applyUpdate(update, ctx);
-		},
-	};
+	return { handleResponseHeaders, handleBodyEvent };
 }
