@@ -22,8 +22,15 @@ const imageGenerationSkill = join(
 
 export default async function codexExtension(pi: ExtensionAPI) {
 	const cyberWarnings = await registerCyberWarningSupport(pi);
-	const fastMode = await registerCodexFastModeSupport(pi);
-	const quotaDisplay = registerQuotaDisplaySupport(pi);
+	let getQuotaStatusWidth = (): number => 0;
+	const fastMode = await registerCodexFastModeSupport(
+		pi,
+		() => getQuotaStatusWidth(),
+	);
+	const quotaDisplay = registerQuotaDisplaySupport(pi, (ctx) =>
+		fastMode.refreshStatus(ctx),
+	);
+	getQuotaStatusWidth = quotaDisplay.getStatusWidth;
 	const handleBodyEvent = (event: Record<string, unknown>): void => {
 		cyberWarnings.handleBodyEvent(event);
 		quotaDisplay.handleBodyEvent(event);
