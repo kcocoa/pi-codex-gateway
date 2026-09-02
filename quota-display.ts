@@ -16,6 +16,45 @@ import {
 
 const STATUS_KEY = "codex-quota";
 
+function debugEnabled(): boolean {
+	const value = process.env.DEBUG?.trim().toLowerCase();
+	return value === "1" || value === "true";
+}
+
+function debugNotify(ctx: ExtensionContext | undefined, message: string): void {
+	if (!debugEnabled()) return;
+	const line = `[quota-debug] ${new Date().toISOString().slice(11, 19)} ${message}`;
+	// notify messages land in the chat scrollback, so the TUI repaint
+	// cannot erase them. stderr is only a fallback for headless runs.
+	if (ctx?.hasUI) ctx.ui.notify(line, "info");
+	else console.error(line);
+}
+
+function debugWindowText(window: RateLimitWindow, fallback: string): string {
+	const label = formatWindowLabel(window, fallback);
+	const reset = formatResetCountdown(window.resetsAt);
+	return `${label}:${formatPercent(remainingPercent(window))}%${reset ? `↺${reset}` : ""}`;
+}
+
+function debugUpdateText(update: RateLimitUpdate): string {
+	return (
+		update.snapshots
+			.map((snapshot) => {
+				const parts = [snapshot.limitId];
+				if (snapshot.primary)
+					parts.push(debugWindowText(snapshot.primary, "primary"));
+				if (snapshot.secondary)
+					parts.push(debugWindowText(snapshot.secondary, "secondary"));
+				if (snapshot.credits)
+					parts.push(
+						`credits:${snapshot.credits.balance ?? (snapshot.credits.hasCredits ? "yes" : "no")}`,
+					);
+				return parts.join(" ");
+			})
+			.join(" | ") || "no snapshots"
+	);
+}
+
 export interface QuotaDisplaySupport {
 	handleResponseHeaders(
 		headers: Record<string, string>,
@@ -195,7 +234,7 @@ export function registerQuotaDisplaySupport(
 	const applyUpdate = (
 		update: RateLimitUpdate,
 		ctx: ExtensionContext,
-	): void => {
+	): boolean => {
 		// Provider callbacks are synchronous and arrive in response/retry order.
 		// Merge partial snapshots instead of replacing them so a later retry or
 		// a duplicate source cannot regress fields that were already observed.
@@ -236,9 +275,10 @@ export function registerQuotaDisplaySupport(
 			rateLimitReachedType = update.rateLimitReachedType;
 			changed = true;
 		}
-		if (!changed) return;
+		if (!changed) return false;
 		lastUpdatedAt = Date.now();
 		renderStatus(ctx);
+		return true;
 	};
 
 	const formatDetails = (): string => {
@@ -308,17 +348,34 @@ export function registerQuotaDisplaySupport(
 	): void => {
 		if (!isCodexGpt(ctx)) return;
 		const update = parseRateLimitHeaders(headers);
-		if (update) applyUpdate(update, ctx);
+		const refreshed = update ? applyUpdate(update, ctx) : false;
+		debugNotify(
+			ctx,
+			update
+				? `source=hdr updated=${refreshed ? "true" : "false(dup)"} ${debugUpdateText(update)}`
+				: "source=hdr updated=false(no headers)",
+		);
 	};
 
 	const handleBodyEvent = (
 		event: SseBodyEvent,
 		ctx?: ExtensionContext,
 	): void => {
+		const typeText = String(event.type);
+		if (!/limit|usage|rate|credit/i.test(typeText)) return;
 		const active = ctx ?? activeContext;
-		if (!active || !isCodexGpt(active)) return;
+		if (!active || !isCodexGpt(active)) {
+			debugNotify(ctx, "source=sse updated=false(skip:no ctx)");
+			return;
+		}
 		const update = parseRateLimitBodyEvent(event);
-		if (update) applyUpdate(update, active);
+		const refreshed = update ? applyUpdate(update, active) : false;
+		debugNotify(
+			active,
+			update
+				? `source=sse updated=${refreshed ? "true" : "false(dup)"} ${debugUpdateText(update)}`
+				: `source=sse updated=false(no fields) type=${typeText}`,
+		);
 	};
 
 	pi.on("after_provider_response", (event, ctx) => {
