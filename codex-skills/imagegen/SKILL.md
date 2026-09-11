@@ -5,7 +5,7 @@ description: Generate or edit raster images through the active Codex provider's 
 
 # Image Generation for Pi / Codex
 
-Use Pi's `image_gen` tool for this skill. It uses the active provider's native image
+Use the `image_gen.imagegen` tool for this skill. It uses the active provider's native image
 API: the Responses `image_generation` tool for `codex-gateway`, or the official Codex
 Images API for `openai-codex`. It is **not** a Python/CLI fallback.
 
@@ -15,7 +15,7 @@ discovery.
 
 ## Non-negotiable rules
 
-- Use `image_gen` for normal image generation and editing. Do **not** create one-off
+- Use `image_gen.imagegen` for normal image generation and editing. Do **not** create one-off
   API runners or invoke `scripts/image_gen.py`.
 - This Pi migration deliberately has no CLI fallback. If native image generation fails,
   report the error and offer to refine the prompt or retry only when appropriate.
@@ -23,7 +23,7 @@ discovery.
   raster visual. Conversely, prefer repo-native vector/code assets for an established
   icon set, logo system, diagram, or UI component.
 - Do not overwrite an existing image unless the user explicitly requests replacement.
-  `image_gen` defaults to a versioned sibling filename when needed.
+  `image_gen.imagegen` defaults to a versioned sibling filename when needed.
 - Report each final path and the prompt actually sent.
 
 ## Output locations
@@ -66,7 +66,7 @@ return the image inline.
   image, cover, ad creative, infographic, or visual variant.
 - Edit an existing bitmap: replace/remove an object, change a background, transform
   lighting/weather, localize in-image text, composite references, or preserve identity.
-- Generate multiple distinct assets: make one `image_gen` call per distinct prompt.
+- Generate multiple distinct assets: make one `image_gen.imagegen` call per distinct prompt.
   Do not use a vague request for “variants” as a substitute for specifying each asset.
 
 ## When not to use
@@ -110,7 +110,7 @@ a reference unless the user clearly asks to alter it.
    required invariants, avoid list, and image roles.
 4. Shape the user request into a clear production prompt. Preserve a detailed user
    prompt; add restrained composition/detail only when the original is generic.
-5. Call `image_gen` directly. For project-bound output, pass `output_path` before
+5. Call `image_gen.imagegen` directly. For project-bound output, pass `output_path` before
    generating; do not generate into the session directory and move it later unless a
    destination is still unknown.
 6. Inspect the returned image and validate subject, style, composition, exact text,
@@ -156,7 +156,7 @@ thin fringe.
 
 ### Native transparency
 
-When the user explicitly requests true/native transparency, call `image_gen` with
+When the user explicitly requests true/native transparency, call `image_gen.imagegen` with
 `background: "transparent"` and PNG output (`codex-gateway` may also support WebP).
 Some hosted image models may reject that option. If so, explain the limitation and offer
 the chroma-key workflow above; do not fall back to the bundled CLI.

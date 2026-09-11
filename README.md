@@ -126,8 +126,8 @@ provider request when no hosted web-search tool is already present.
 
 ## Image generation
 
-The default path uses the provider-hosted image-generation tool. For
-`codex-gateway`, the extension injects `{ "type": "image_generation" }` into the
+The default path uses the provider-hosted image-generation tool. For both Codex
+providers, the extension injects `{ "type": "image_generation" }` into the
 Responses request and receives `image_generation_call` events over SSE. The
 receiver persists the result and records the source prompt, requested defaults,
 resolved parameters, revised prompt, response ID, and observed event types.
@@ -144,8 +144,14 @@ by default. Enable it explicitly in `<Pi agent directory>/codex.json`:
 ```
 
 When enabled, the original `image_gen` tool and `codex-skills/imagegen/SKILL.md`
-are registered. It uses the Responses image tool for `codex-gateway` and the
-official Codex Images endpoints for `openai-codex`.
+are registered as an explicit fallback. It uses the Responses image tool for
+`codex-gateway` and the official Codex Images endpoints for `openai-codex`.
+
+This uses a deliberately tricky compatibility shim: Pi registers a flat local
+`imagegen` tool, then `before_provider_request` rewrites its model-facing schema
+into the reserved `image_gen.imagegen` namespace with Codex's exact wire schema.
+The namespace tool and hosted `image_generation` tool are mutually exclusive in
+the same request because the provider rejects that combination.
 
 Generated hosted files are saved by default under the current Pi session's
 `generated_images/` directory. Ephemeral `--no-session` runs use

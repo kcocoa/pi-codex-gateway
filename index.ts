@@ -9,6 +9,10 @@ import { isCodexGpt, isOpenAICodexGpt } from "./codex-provider.ts";
 import { readCodexConfig } from "./codex-config.ts";
 import { registerHostedImageReception } from "./hosted-image-generation.ts";
 import {
+	IMAGE_GENERATION_DESCRIPTION,
+	IMAGE_GENERATION_NAMESPACE,
+	IMAGE_GENERATION_TOOL_NAME,
+	IMAGE_GENERATION_WIRE_PARAMETERS,
 	registerImageGeneration,
 	syncImageGenerationTool,
 } from "./external-tools/index.ts";
@@ -31,6 +35,31 @@ function externalImageGenerationEnabled(config: Record<string, unknown>): boolea
 	const tools = config.externalTools;
 	return !!tools && typeof tools === "object" && !Array.isArray(tools) &&
 		(tools as ExternalToolsConfig).imageGeneration === true;
+}
+
+function namespaceExternalImageTool(tools: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+	const index = tools.findIndex(
+		(tool) => tool.type === "function" && tool.name === IMAGE_GENERATION_TOOL_NAME,
+	);
+	if (index < 0) return tools;
+
+	const nestedTool: Record<string, unknown> = {
+		type: "function",
+		name: IMAGE_GENERATION_TOOL_NAME,
+		description: IMAGE_GENERATION_DESCRIPTION,
+		parameters: IMAGE_GENERATION_WIRE_PARAMETERS,
+		strict: false,
+	};
+	return [
+		...tools.slice(0, index),
+		{
+			type: "namespace",
+			name: IMAGE_GENERATION_NAMESPACE,
+			description: "Tools in the image_gen namespace.",
+			tools: [nestedTool],
+		},
+		...tools.slice(index + 1),
+	];
 }
 
 export default async function codexExtension(pi: ExtensionAPI) {
@@ -88,7 +117,7 @@ export default async function codexExtension(pi: ExtensionAPI) {
 
 		const payload = event.payload as Record<string, unknown>;
 		const tools = Array.isArray(payload.tools)
-			? (payload.tools as Array<{ type?: string }>)
+			? (payload.tools as Array<Record<string, unknown>>)
 			: [];
 		const hasWebSearch = tools.some(
 			(tool) =>
@@ -99,16 +128,19 @@ export default async function codexExtension(pi: ExtensionAPI) {
 		);
 		const additions = [...tools];
 		if (!hasWebSearch) additions.push({ type: "web_search" });
-		// Hosted image generation is currently verified only for the gateway.
-		// openai-codex keeps its dedicated Images API path until separately supported.
-		if (ctx.model?.provider === "codex-gateway" && !hasHostedImageGeneration) {
+		// Expose the hosted image-generation capability unless the explicit
+		// external namespace tool is enabled. Both forms in one request conflict.
+		if (isCodexGpt(ctx) && !useExternalImageGeneration && !hasHostedImageGeneration) {
 			additions.push({ type: "image_generation" });
 		}
 
+		const requestTools = useExternalImageGeneration
+			? namespaceExternalImageTool(additions)
+			: additions;
 		const nextPayload = {
 			...payload,
 			service_tier: fastMode.getServiceTier(),
-			tools: additions,
+			tools: requestTools,
 		};
 		hostedImages.handleProviderRequest(nextPayload, ctx);
 		return nextPayload;

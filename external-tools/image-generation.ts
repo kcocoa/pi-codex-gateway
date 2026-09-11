@@ -4,14 +4,63 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 import { isCodexGpt, isOpenAICodexGpt } from "../codex-provider.ts";
 
-export const IMAGE_GENERATION_TOOL_NAME = "image_gen";
+export const IMAGE_GENERATION_TOOL_NAME = "imagegen";
+export const IMAGE_GENERATION_NAMESPACE = "image_gen";
 
 const IMAGE_GENERATION_TOOL = {
 	type: "image_generation",
 } as const;
 
+export const IMAGE_GENERATION_DESCRIPTION = `The image_gen.imagegen tool enables image generation from descriptions and editing of existing images based on specific instructions. Use it when:
+
+- The user requests an image based on a scene description, such as a diagram, portrait, comic, meme, or any other visual.
+- The user wants to modify an attached or previously generated image with specific changes, including adding or removing elements, altering colors, improving quality/resolution, or transforming the style (e.g., cartoon, oil painting).
+
+Guidelines:
+- Omit both referenced_image_paths and num_last_images_to_include when generating a brand new image.
+- For edits, use referenced_image_paths when every target image has a local file path.
+- Use num_last_images_to_include only when at least one target image has no local file path.
+- Set num_last_images_to_include to the smallest number of recent conversation images that includes every target image, up to 5.
+- Never provide both referenced_image_paths and num_last_images_to_include.`;
+
+const IMAGE_GENERATION_PARAMETERS = Type.Object({
+	prompt: Type.String(),
+	referenced_image_paths: Type.Optional(Type.Union([
+		Type.Array(Type.String(), { maxItems: 5 }),
+		Type.Null(),
+	])),
+	num_last_images_to_include: Type.Optional(Type.Union([
+		Type.Integer({ minimum: 1, maximum: 5 }),
+		Type.Null(),
+	])),
+});
+
+// This is the exact Responses namespace schema emitted by Codex after its
+// tool-input schema normalization. It is intentionally separate from the
+// local TypeBox schema above: the reserved image_gen.imagegen tool validates
+// the wire schema, including nullable optional fields and path metadata.
+export const IMAGE_GENERATION_WIRE_PARAMETERS = {
+	type: "object",
+	properties: {
+		num_last_images_to_include: { type: ["integer", "null"] },
+		prompt: { type: "string" },
+		referenced_image_paths: {
+			type: ["array", "null"],
+			items: {
+				type: "string",
+				description: "A path that is guaranteed to be absolute and normalized (though it is not guaranteed to be canonicalized or exist on the filesystem).\n\nIMPORTANT: When deserializing an `AbsolutePathBuf`, a base path must be set using [AbsolutePathBufGuard::new]. If no base path is set, the deserialization will fail unless the path being deserialized is already absolute.",
+			},
+		},
+	},
+	required: ["prompt"],
+	additionalProperties: false,
+} as const;
+
 type ImageGenerationParams = {
 	prompt: string;
+	referenced_image_paths?: string[];
+	num_last_images_to_include?: number;
+	// Internal aliases retained for the provider adapter and legacy callers.
 	action?: "auto" | "generate" | "edit";
 	size?: string;
 	quality?: "low" | "medium" | "high" | "auto";
@@ -20,6 +69,7 @@ type ImageGenerationParams = {
 	output_compression?: number;
 	image_paths?: string[];
 	use_conversation_images?: boolean;
+	conversation_image_count?: number;
 	output_path?: string;
 	overwrite?: boolean;
 };
@@ -336,11 +386,15 @@ async function callImageGeneration(
 	if (explicitImages.length > imageLimit) {
 		throw new Error(`${model.provider} image generation supports at most ${imageLimit} input images`);
 	}
+	const conversationImageCount = Math.min(
+		params.conversation_image_count ?? imageLimit,
+		imageLimit,
+	);
 	const inputImages = explicitImages.length > 0
 		? await Promise.all(explicitImages.map((path) => imagePathToInput(path, ctx.cwd)))
 		: params.use_conversation_images === false
 			? []
-			: latestConversationImages(ctx).slice(0, imageLimit);
+			: latestConversationImages(ctx).slice(-conversationImageCount);
 
 	if (isOpenAICodexGpt(ctx)) {
 		if (!apiKey) throw new Error("OpenAI Codex image generation requires OAuth authentication");
@@ -415,30 +469,22 @@ export function registerImageGeneration(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: IMAGE_GENERATION_TOOL_NAME,
 		label: "Image Generation",
-		description:
-			"Generate or edit raster images through the active Codex provider's native image API. Saves outputs under the current Pi session directory by default and returns the generated image to the model.",
-		promptSnippet: "Generate or edit raster images with the provider-native image generation tool",
+		description: IMAGE_GENERATION_DESCRIPTION,
+		promptSnippet: "Generate or edit raster images with image_gen.imagegen",
 		promptGuidelines: [
-			"Use image_gen for AI-created or AI-edited raster images; do not substitute SVG, HTML, or CLI scripts when a bitmap is requested.",
-			"Use image_paths for local edit/reference images when the user identifies files; use output_path only when the user requests a specific destination.",
-			"Use output_compression only with JPEG or WebP output; omit it for PNG output.",
-			"image_gen saves to the current Pi session's generated_images directory by default, or /tmp/generated_images for --no-session runs, and does not overwrite existing files unless overwrite is true.",
+			"Use image_gen.imagegen for AI-created or AI-edited raster images; do not substitute SVG, HTML, or CLI scripts when a bitmap is requested.",
+			"Use referenced_image_paths for local edit/reference images, or num_last_images_to_include for recent conversation images.",
+			"image_gen.imagegen saves outputs under the current Pi session's generated_images directory by default.",
 		],
-		parameters: Type.Object({
-			prompt: Type.String({ description: "A complete image generation or editing prompt" }),
-			action: Type.Optional(Type.String({ description: "auto, generate, or edit" })),
-			size: Type.Optional(Type.String({ description: "Image size such as 1024x1024, 1536x1024, or auto" })),
-			quality: Type.Optional(Type.String({ description: "low, medium, high, or auto" })),
-			background: Type.Optional(Type.String({ description: "transparent, opaque, or auto" })),
-			output_format: Type.Optional(Type.String({ description: "png, jpeg, jpg, or webp; OpenAI Codex supports png only" })),
-			output_compression: Type.Optional(Type.Number({ description: "JPEG/WebP compression from 0 to 100; ignored for PNG; Codex Gateway only" })),
-			image_paths: Type.Optional(Type.Array(Type.String(), { maxItems: 16 })),
-			use_conversation_images: Type.Optional(Type.Boolean({ description: "Use images attached to the latest user message when image_paths is omitted" })),
-			output_path: Type.Optional(Type.String({ description: "Optional destination path, relative to the project cwd" })),
-			overwrite: Type.Optional(Type.Boolean({ description: "Allow replacing an existing output file" })),
-		}),
+		parameters: IMAGE_GENERATION_PARAMETERS,
 		async execute(toolCallId, rawParams, signal, _onUpdate, ctx) {
-			const params = rawParams as ImageGenerationParams;
+			const input = rawParams as ImageGenerationParams;
+			const params: ImageGenerationParams = {
+				...input,
+				image_paths: input.referenced_image_paths,
+				use_conversation_images: input.num_last_images_to_include !== undefined,
+				conversation_image_count: input.num_last_images_to_include,
+			};
 			const result = await callImageGeneration(ctx, params, toolCallId, signal);
 			const format = outputFormatFor(params);
 			const firstPath = outputPathFor(ctx, params, format);
