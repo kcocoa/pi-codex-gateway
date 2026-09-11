@@ -1,0 +1,19 @@
+{
+  "name": "pi-codex-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pi extension for Codex providers",
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "latest",
+    "@earendil-works/pi-coding-agent": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "latest"
+  }
+}
