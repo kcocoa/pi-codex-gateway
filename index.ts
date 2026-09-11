@@ -6,25 +6,36 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { isCodexGpt, isOpenAICodexGpt } from "./codex-provider.ts";
-import { registerCyberWarningSupport } from "./cyber-warning.ts";
-import { registerCodexFastModeSupport } from "./fast-mode.ts";
+import { readCodexConfig } from "./codex-config.ts";
+import { registerHostedImageReception } from "./hosted-image-generation.ts";
 import {
 	registerImageGeneration,
 	syncImageGenerationTool,
-} from "./image-generation.ts";
+} from "./external-tools/index.ts";
+import { registerCyberWarningSupport } from "./cyber-warning.ts";
+import { registerCodexFastModeSupport } from "./fast-mode.ts";
 import { codexGatewayProvider } from "./providers/codex-gateway.ts";
 import { registerOpenAICodexSupport } from "./providers/openai-codex.ts";
 import { registerQuotaDisplaySupport } from "./quota-display.ts";
+import { dumpSseEvent } from "./sse-dump.ts";
 
 const baseDir = dirname(fileURLToPath(import.meta.url));
-const imageGenerationSkill = join(
-	baseDir,
-	"codex-skills",
-	"imagegen",
-	"SKILL.md",
-);
+const hostedImageSkill = join(baseDir, "codex-skills", "imagegen-hosted", "SKILL.md");
+const externalImageSkill = join(baseDir, "codex-skills", "imagegen", "SKILL.md");
+
+type ExternalToolsConfig = {
+	imageGeneration?: boolean;
+};
+
+function externalImageGenerationEnabled(config: Record<string, unknown>): boolean {
+	const tools = config.externalTools;
+	return !!tools && typeof tools === "object" && !Array.isArray(tools) &&
+		(tools as ExternalToolsConfig).imageGeneration === true;
+}
 
 export default async function codexExtension(pi: ExtensionAPI) {
+	const config = await readCodexConfig();
+	const useExternalImageGeneration = externalImageGenerationEnabled(config);
 	const cyberWarnings = await registerCyberWarningSupport(pi);
 	let getQuotaStatusWidth = (): number => 0;
 	const fastMode = await registerCodexFastModeSupport(
@@ -35,21 +46,30 @@ export default async function codexExtension(pi: ExtensionAPI) {
 		fastMode.refreshStatus(ctx),
 	);
 	getQuotaStatusWidth = quotaDisplay.getStatusWidth;
+	const hostedImages = registerHostedImageReception(pi);
 	const handleBodyEvent = (event: Record<string, unknown>): void => {
+		dumpSseEvent(event);
 		cyberWarnings.handleBodyEvent(event);
 		quotaDisplay.handleBodyEvent(event);
+		hostedImages.handleBodyEvent(event);
 	};
 	pi.registerProvider(codexGatewayProvider(handleBodyEvent));
 	registerOpenAICodexSupport(pi, handleBodyEvent);
-	registerImageGeneration(pi);
 
-	// The imagegen skill and image_gen tool are available only for Codex GPT models.
+	if (useExternalImageGeneration) {
+		registerImageGeneration(pi);
+		pi.on("session_start", (_event, ctx) => syncImageGenerationTool(pi, ctx));
+		pi.on("model_select", (_event, ctx) => syncImageGenerationTool(pi, ctx));
+	}
+
 	pi.on("resources_discover", (_event, ctx) => {
 		if (!isCodexGpt(ctx)) return {};
-		return { skillPaths: [imageGenerationSkill] };
+		return {
+			skillPaths: [useExternalImageGeneration ? externalImageSkill : hostedImageSkill],
+		};
 	});
+
 	pi.on("session_start", (_event, ctx) => {
-		syncImageGenerationTool(pi, ctx);
 		if (!isOpenAICodexGpt(ctx)) return;
 
 		const transport = SettingsManager.create(ctx.cwd, getAgentDir(), {
@@ -62,8 +82,6 @@ export default async function codexExtension(pi: ExtensionAPI) {
 			"warning",
 		);
 	});
-	pi.on("model_select", (_event, ctx) => syncImageGenerationTool(pi, ctx));
-
 	// Add Codex-native request fields to the existing provider request.
 	pi.on("before_provider_request", (event, ctx) => {
 		if (!isCodexGpt(ctx)) return;
@@ -76,11 +94,23 @@ export default async function codexExtension(pi: ExtensionAPI) {
 			(tool) =>
 				tool.type === "web_search" || tool.type === "web_search_preview",
 		);
+		const hasHostedImageGeneration = tools.some(
+			(tool) => tool.type === "image_generation",
+		);
+		const additions = [...tools];
+		if (!hasWebSearch) additions.push({ type: "web_search" });
+		// Hosted image generation is currently verified only for the gateway.
+		// openai-codex keeps its dedicated Images API path until separately supported.
+		if (ctx.model?.provider === "codex-gateway" && !hasHostedImageGeneration) {
+			additions.push({ type: "image_generation" });
+		}
 
-		return {
+		const nextPayload = {
 			...payload,
 			service_tier: fastMode.getServiceTier(),
-			...(hasWebSearch ? {} : { tools: [...tools, { type: "web_search" }] }),
+			tools: additions,
 		};
+		hostedImages.handleProviderRequest(nextPayload, ctx);
+		return nextPayload;
 	});
 }

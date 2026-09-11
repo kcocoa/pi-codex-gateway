@@ -61,7 +61,9 @@ trade-offs.
 - `fast-mode.ts`: persistent `/codex:fast` command
 - `rate-limits.ts`: quota header/event parsing
 - `quota-display.ts`: footer status and detailed quota command
-- `image-generation.ts`: provider-native image generation and persistence
+- `hosted-image-generation.ts`: hosted image SSE reception, metadata parsing, and persistence
+- `sse-dump.ts`: opt-in parsed SSE JSONL dump for protocol analysis
+- `external-tools/`: opt-in local image-generation proxy tools
 - `providers/codex-gateway.ts`: API-key gateway provider
 - `providers/openai-codex.ts`: official provider transport wrapper and SSE observer
 - `docs/websocket.md`: WebSocket implementation plan and known difficulties
@@ -124,21 +126,35 @@ provider request when no hosted web-search tool is already present.
 
 ## Image generation
 
-For active GPT models from either provider, the extension discovers
-`codex-skills/imagegen/SKILL.md` and activates the `image_gen` tool.
+The default path uses the provider-hosted image-generation tool. For
+`codex-gateway`, the extension injects `{ "type": "image_generation" }` into the
+Responses request and receives `image_generation_call` events over SSE. The
+receiver persists the result and records the source prompt, requested defaults,
+resolved parameters, revised prompt, response ID, and observed event types.
 
-- `codex-gateway` uses the Responses API hosted `image_generation` tool.
-- `openai-codex` uses the official Codex Images endpoints with the existing OAuth
-  token and `gpt-image-2`. It supports generation and edits with up to five input
-  images and currently returns PNG output only.
+The local `image_gen` proxy is extracted under `external-tools/` and is disabled
+by default. Enable it explicitly in `<Pi agent directory>/codex.json`:
 
-Generated files are saved by default under the current Pi session's
+```json
+{
+  "externalTools": {
+    "imageGeneration": true
+  }
+}
+```
+
+When enabled, the original `image_gen` tool and `codex-skills/imagegen/SKILL.md`
+are registered. It uses the Responses image tool for `codex-gateway` and the
+official Codex Images endpoints for `openai-codex`.
+
+Generated hosted files are saved by default under the current Pi session's
 `generated_images/` directory. Ephemeral `--no-session` runs use
-`/tmp/generated_images/`. Set `output_path` when the asset belongs in the
-project. Existing files are not overwritten unless `overwrite: true` is given.
+`/tmp/generated_images/`. The external proxy also supports explicit
+`output_path`, local reference images, and overwrite protection.
 
-The Skill is discovered at startup or `/reload`; after switching to or from a
-supported provider, run `/reload` to refresh the available Skill list.
+For protocol debugging, set `CODEX_SSE_DUMP_PATH` to an explicit JSONL path.
+This dumps parsed SSE events, including potentially sensitive prompts,
+reasoning metadata, and base64 image data; keep it disabled during normal use.
 
 ## License
 

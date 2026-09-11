@@ -2,7 +2,7 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, extname, join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { isCodexGpt, isOpenAICodexGpt } from "./codex-provider.ts";
+import { isCodexGpt, isOpenAICodexGpt } from "../codex-provider.ts";
 
 export const IMAGE_GENERATION_TOOL_NAME = "image_gen";
 
