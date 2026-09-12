@@ -69,11 +69,11 @@ export function createSseJsonDecoder(onEvent: SseBodyEventHandler) {
 /**
  * Wrap fetch with a transparent SSE response-body event tap.
  *
- * The original fetch receives the exact input and init values. Non-SSE
- * responses are returned unchanged. SSE bytes are enqueued unchanged while a
- * UTF-8/SSE decoder observes JSON data events on the side. This hook never
- * reads response headers for business purposes and never returns a replacement
- * response to the provider.
+ * Keep returning the provider's original Response. Rebuilding a Response
+ * around a TransformStream looks equivalent in browsers, but Bun's HTTP
+ * implementation can treat that replacement body as a client-side abort for
+ * long-lived SSE requests. A clone gives the observer its own branch while
+ * leaving the provider's response, cancellation, and transport untouched.
  */
 export function createSseEventTapFetch(
 	baseFetch: typeof globalThis.fetch,
@@ -91,31 +91,31 @@ export function createSseEventTapFetch(
 			return response;
 		}
 
-		const decoder = new TextDecoder();
-		const events = createSseJsonDecoder(onEvent);
-		const transform = new TransformStream<Uint8Array, Uint8Array>({
-			transform(chunk, controller) {
-				try {
-					events.push(decoder.decode(chunk, { stream: true }));
-				} catch {
-					// Decoding is best-effort; the original bytes still pass through.
-				}
-				controller.enqueue(chunk);
-			},
-			flush() {
-				try {
-					events.push(decoder.decode());
-					events.finish();
-				} catch {
-					// Observation is fail-open, including stream finalization.
-				}
-			},
-		});
+		let observed: Response;
+		try {
+			observed = response.clone();
+		} catch {
+			return response;
+		}
 
-		return new Response(response.body.pipeThrough(transform), {
-			status: response.status,
-			statusText: response.statusText,
-			headers: response.headers,
-		});
+		void (async () => {
+			const decoder = new TextDecoder();
+			const events = createSseJsonDecoder(onEvent);
+			try {
+				const reader = observed.body?.getReader();
+				if (!reader) return;
+				while (true) {
+					const { done, value } = await reader.read();
+					if (done) break;
+					events.push(decoder.decode(value, { stream: true }));
+				}
+				events.push(decoder.decode());
+				events.finish();
+			} catch {
+				// Observation is fail-open and must never abort the provider branch.
+			}
+		})();
+
+		return response;
 	}) as typeof globalThis.fetch;
 }

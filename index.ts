@@ -22,6 +22,7 @@ import { codexGatewayProvider } from "./providers/codex-gateway.ts";
 import { registerOpenAICodexSupport } from "./providers/openai-codex.ts";
 import { registerQuotaDisplaySupport } from "./quota-display.ts";
 import { dumpSseEvent } from "./sse-dump.ts";
+import { installCodexWebSocketObserver } from "./codex-websocket.ts";
 
 const baseDir = dirname(fileURLToPath(import.meta.url));
 const hostedImageSkill = join(baseDir, "codex-skills", "imagegen-hosted", "SKILL.md");
@@ -82,6 +83,11 @@ export default async function codexExtension(pi: ExtensionAPI) {
 		quotaDisplay.handleBodyEvent(event);
 		hostedImages.handleBodyEvent(event);
 	};
+	const cleanupWebSocketObserver = config.codexWebSocketObserver === true
+		? installCodexWebSocketObserver(handleBodyEvent)
+		: () => {};
+	pi.on("session_shutdown", () => cleanupWebSocketObserver());
+
 	pi.registerProvider(codexGatewayProvider(handleBodyEvent));
 	registerOpenAICodexSupport(pi, handleBodyEvent);
 
@@ -106,10 +112,17 @@ export default async function codexExtension(pi: ExtensionAPI) {
 		}).getTransport();
 		if (transport === "sse") return;
 
-		ctx.ui.notify(
-			`[pi-codex-gateway] OpenAI Codex is using ${transport} transport. Quota/usage updates and remote Cyber warnings are unavailable on WebSocket responses. To restore them: run /settings → Transport → SSE.`,
-			"warning",
-		);
+		if (config.codexWebSocketObserver === true) {
+			ctx.ui.notify(
+				`[pi-codex-gateway] OpenAI Codex is using ${transport} transport with the experimental WebSocket observer. Quota/usage events are observed on a best-effort basis; binary messages and exact request context are unsupported.`,
+				"info",
+			);
+		} else {
+			ctx.ui.notify(
+				`[pi-codex-gateway] OpenAI Codex is using ${transport} transport. Quota/usage updates and remote Cyber warnings are unavailable on WebSocket responses. To restore them: run /settings → Transport → SSE, or enable codexWebSocketObserver in codex.json.`,
+				"warning",
+			);
+		}
 	});
 	// Add Codex-native request fields to the existing provider request.
 	pi.on("before_provider_request", (event, ctx) => {

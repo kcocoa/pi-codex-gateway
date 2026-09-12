@@ -42,9 +42,16 @@ same response bytes. HTTP response headers are handled by Pi's
 side-channel observation for quota, model-routing, and Cyber-warning signals.
 
 When the configured transport is not `sse`, the provider can use Pi's WebSocket
-transport, but the extension cannot observe the WebSocket frames. At session
-startup it explains that quota/usage updates and remote Cyber warnings are
-unavailable on WebSocket responses. Restore them with `/settings` → `Transport` →
+transport. WebSocket observation is disabled by default; to enable the
+experimental read-only observer, add `"codexWebSocketObserver": true` to
+`<Pi agent directory>/codex.json`. It only observes text JSON messages from the
+Codex response socket, does not log raw frames, and does not support binary
+messages or exact request-context association. The observer is fail-open and
+must not affect Pi's official listener or response handling.
+
+At session startup, the extension explains that quota/usage updates and remote
+Cyber warnings are unavailable on WebSocket responses unless this observer is
+enabled. Restore the fully supported SSE path with `/settings` → `Transport` →
 `SSE`, or set `"transport": "sse"` in `~/.pi/agent/settings.json` (or the project
 `.pi/settings.json`). See [docs/websocket.md](docs/websocket.md) for the transport
 trade-offs.
@@ -67,6 +74,32 @@ trade-offs.
 - `providers/codex-gateway.ts`: API-key gateway provider
 - `providers/openai-codex.ts`: official provider transport wrapper and SSE observer
 - `docs/websocket.md`: WebSocket implementation plan and known difficulties
+
+## Extension configuration
+
+The extension stores its settings in `<Pi agent directory>/codex.json` (normally
+`~/.pi/agent/codex.json`). Supported keys are:
+
+```json
+{
+  "cyberWarningAction": "warn",
+  "serviceTier": "default",
+  "codexWebSocketObserver": false,
+  "externalTools": {
+    "imageGeneration": false
+  }
+}
+```
+
+- `cyberWarningAction`: `warn` (default), `stop`, or `stop-after-repeat`.
+- `serviceTier`: `default` (default) or `priority`.
+- `codexWebSocketObserver`: enables the experimental, read-only WebSocket
+  observer; it is disabled by default.
+- `externalTools.imageGeneration`: enables the local `image_gen` fallback;
+  disabled by default. This is mutually exclusive with the hosted image tool.
+
+The first two options can also be changed with `/codex:cyber` and
+`/codex:fast`. Settings not listed above are ignored by this extension.
 
 ## Cyber warnings
 
