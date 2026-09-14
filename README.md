@@ -43,10 +43,10 @@ side-channel observation for quota, model-routing, and Cyber-warning signals.
 
 When the configured transport is not `sse`, the provider can use Pi's WebSocket
 transport. WebSocket observation is disabled by default; to enable the
-experimental read-only observer, add `"codexWebSocketObserver": true` to
-`<Pi agent directory>/codex.json`. It only observes text JSON messages from the
-Codex response socket, does not log raw frames, and does not support binary
-messages or exact request-context association. The observer is fail-open and
+experimental read-only observer, add `"codexWebSocketObserver": true` under
+`experimental` in `<Pi agent directory>/codex-gateway.json`. It only observes
+text JSON messages from the Codex response socket, does not log raw frames, and
+does not support binary messages or exact request-context association. The observer is fail-open and
 must not affect Pi's official listener or response handling.
 
 At session startup, the extension explains that quota/usage updates and remote
@@ -59,7 +59,7 @@ trade-offs.
 ## Layout
 
 - `index.ts`: registration and provider-scoped capabilities
-- `codex-config.ts`: shared `codex.json` preference storage
+- `codex-config.ts`: shared `codex-gateway.json` preference storage
 - `codex-provider.ts`: shared provider matching
 - `codex-sse.ts`: transparent SSE response-body event hook
 - `codex-signals.ts`: server-model and cyber recommendation parsing
@@ -77,14 +77,17 @@ trade-offs.
 
 ## Extension configuration
 
-The extension stores its settings in `<Pi agent directory>/codex.json` (normally
-`~/.pi/agent/codex.json`). Supported keys are:
+The extension stores its settings in
+`<Pi agent directory>/codex-gateway.json` (normally
+`~/.pi/agent/codex-gateway.json`). Supported keys are:
 
 ```json
 {
   "cyberWarningAction": "warn",
   "serviceTier": "default",
-  "codexWebSocketObserver": false,
+  "experimental": {
+    "codexWebSocketObserver": false
+  },
   "externalTools": {
     "imageGeneration": false
   }
@@ -93,8 +96,8 @@ The extension stores its settings in `<Pi agent directory>/codex.json` (normally
 
 - `cyberWarningAction`: `warn` (default), `stop`, or `stop-after-repeat`.
 - `serviceTier`: `default` (default) or `priority`.
-- `codexWebSocketObserver`: enables the experimental, read-only WebSocket
-  observer; it is disabled by default.
+- `experimental.codexWebSocketObserver`: enables the experimental, read-only
+  WebSocket observer; it is disabled by default.
 - `externalTools.imageGeneration`: enables the local `image_gen` fallback;
   disabled by default. This is mutually exclusive with the hosted image tool.
 
@@ -118,14 +121,14 @@ Run `/codex:cyber` to choose:
 
 The command also accepts the policy directly, for example
 `/codex:cyber stop`. The setting is stored in
-`<Pi agent directory>/codex.json`.
+`<Pi agent directory>/codex-gateway.json`.
 
 ## Fast service tier
 
 Run `/codex:fast` to toggle between `default` and `priority`, or specify the
 value directly with `/codex:fast default` or `/codex:fast priority`. Argument
 completion lists both options. The setting is stored in
-`<Pi agent directory>/codex.json`.
+`<Pi agent directory>/codex-gateway.json`.
 
 The extension adds the selected `service_tier` value to the existing Codex
 request payload. It does not add a network request or change Pi's cost
@@ -166,7 +169,7 @@ receiver persists the result and records the source prompt, requested defaults,
 resolved parameters, revised prompt, response ID, and observed event types.
 
 The local `image_gen` proxy is extracted under `external-tools/` and is disabled
-by default. Enable it explicitly in `<Pi agent directory>/codex.json`:
+by default. Enable it explicitly in `<Pi agent directory>/codex-gateway.json`:
 
 ```json
 {
