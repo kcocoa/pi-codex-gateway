@@ -1,6 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { createSseEventTapFetch, createSseJsonDecoder } from "./codex-sse.ts";
 
+async function waitUntil(predicate: () => boolean): Promise<void> {
+	for (let attempt = 0; attempt < 100 && !predicate(); attempt++) {
+		await new Promise((resolve) => setTimeout(resolve, 5));
+	}
+	expect(predicate()).toBe(true);
+}
+
 describe("Codex SSE observation", () => {
 	it("decodes JSON events across chunk and CRLF boundaries", () => {
 		const events: Array<Record<string, unknown>> = [];
@@ -30,7 +37,7 @@ describe("Codex SSE observation", () => {
 			new Response(body, {
 				status: 200,
 				headers: { "content-type": "text/event-stream" },
-			})) as typeof globalThis.fetch;
+			})) as unknown as typeof globalThis.fetch;
 		const response = await createSseEventTapFetch(baseFetch, (event) =>
 			events.push(event),
 		)("https://example.test");
@@ -50,7 +57,7 @@ describe("Codex SSE observation", () => {
 		const original = new Response("ok", {
 			headers: { "content-type": "application/json" },
 		});
-		const baseFetch = (async () => original) as typeof globalThis.fetch;
+		const baseFetch = (async () => original) as unknown as typeof globalThis.fetch;
 		const observed = await createSseEventTapFetch(baseFetch, () => {
 			throw new Error("should not run");
 		})("https://example.test");
@@ -64,7 +71,7 @@ describe("Codex SSE observation", () => {
 			new Response(originalText, {
 				status: 429,
 				headers: { "content-type": "text/event-stream" },
-			})) as typeof globalThis.fetch;
+			})) as unknown as typeof globalThis.fetch;
 		const observed = await createSseEventTapFetch(baseFetch, () => {
 			throw new Error("observer failure");
 		})("https://example.test");
@@ -89,12 +96,99 @@ describe("Codex SSE observation", () => {
 		const baseFetch = (async () =>
 			new Response(body, {
 				headers: { "content-type": "text/event-stream" },
-			})) as typeof globalThis.fetch;
+			})) as unknown as typeof globalThis.fetch;
 
 		const response = await createSseEventTapFetch(baseFetch, (event) =>
 			events.push(event),
 		)("https://example.test");
 		expect(await response.text()).toBe(text);
 		expect(events).toEqual([{ type: "response.metadata", label: "é" }]);
+	});
+
+	it("stops reading the clone after the terminal event", async () => {
+		let cancelled = false;
+		const encoder = new TextEncoder();
+		const chunks = [
+			'data: {"type":"response.created","response":{"id":"resp_1"}}\n\n',
+			'data: {"type":"response.completed","response":{"id":"resp_1"}}\n\n',
+			'data: {"type":"response.metadata","metadata":{}}\n\n',
+		];
+		// Deliberately never closed: the stream must be cancelled instead.
+		const body = new ReadableStream<Uint8Array>({
+			start(controller) {
+				for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+			},
+			cancel() {
+				cancelled = true;
+			},
+		});
+		const baseFetch = (async () =>
+			new Response(body, {
+				status: 200,
+				headers: { "content-type": "text/event-stream" },
+			})) as unknown as typeof globalThis.fetch;
+		const events: Array<Record<string, unknown>> = [];
+		const response = await createSseEventTapFetch(baseFetch, (event) =>
+			events.push(event),
+		)("https://example.test");
+
+		// Consume the original branch like Pi's parser: stop at the terminal event.
+		const reader = response.body?.getReader();
+		expect(reader).toBeDefined();
+		await reader!.read();
+		await reader!.cancel();
+
+		await waitUntil(() => cancelled);
+		expect(events.map((event) => event.type)).toEqual([
+			"response.created",
+			"response.completed",
+		]);
+	});
+
+	it("cancelling the clone branch leaves the provider branch untouched", async () => {
+		let sourceCancelled = false;
+		const encoder = new TextEncoder();
+		const chunks = [
+			'data: {"type":"response.created","response":{"id":"resp_1"}}\n\n',
+			'data: {"type":"response.completed","response":{"id":"resp_1"}}\n\n',
+			'data: {"type":"response.metadata","metadata":{}}\n\n',
+		];
+		// Deliberately never closed: only a cancel of BOTH tee branches can
+		// end this stream.
+		const body = new ReadableStream<Uint8Array>({
+			start(controller) {
+				for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+			},
+			cancel() {
+				sourceCancelled = true;
+			},
+		});
+		const baseFetch = (async () =>
+			new Response(body, {
+				status: 200,
+				headers: { "content-type": "text/event-stream" },
+			})) as unknown as typeof globalThis.fetch;
+		const events: Array<Record<string, unknown>> = [];
+		const response = await createSseEventTapFetch(baseFetch, (event) =>
+			events.push(event),
+		)("https://example.test");
+
+		// Wait for the observer branch to cancel itself at the terminal event,
+		// then verify the provider branch is unaffected: it can still read the
+		// remaining chunks, and the source is only cancelled once Pi cancels
+		// its own reader.
+		await waitUntil(() => events.some((event) => event.type === "response.completed"));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(sourceCancelled).toBe(false);
+
+		const reader = response.body?.getReader();
+		expect(reader).toBeDefined();
+		expect((await reader!.read()).done).toBe(false);
+		expect((await reader!.read()).done).toBe(false);
+		expect((await reader!.read()).done).toBe(false);
+		expect(sourceCancelled).toBe(false);
+
+		await reader!.cancel();
+		await waitUntil(() => sourceCancelled);
 	});
 });

@@ -1,9 +1,16 @@
 import { describe, expect, it, mock } from "bun:test";
-import {
+
+// bun test does not auto-resolve Pi's packages; point the config module at a
+// throwaway agent directory before importing the module under test.
+mock.module("@earendil-works/pi-coding-agent", () => ({
+	getAgentDir: () => "/tmp/pi-codex-gateway-quota-test",
+}));
+
+const {
 	formatResetCountdown,
 	formatSubscriptionType,
 	registerQuotaDisplaySupport,
-} from "./quota-display.ts";
+} = await import("./quota-display.ts");
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 
@@ -28,8 +35,8 @@ function createHarness() {
 }
 
 function createContext(provider = "codex-gateway") {
-	const setStatus = mock(() => undefined);
-	const notify = mock(() => undefined);
+	const setStatus = mock((_key: string, _value?: string) => undefined);
+	const notify = mock((_message: string, _level?: string) => undefined);
 	return {
 		ctx: {
 			model: {
@@ -42,7 +49,11 @@ function createContext(provider = "codex-gateway") {
 				notify,
 				theme: { fg: (_color: string, text: string) => text },
 			},
-		},
+		} as unknown as NonNullable<
+			Parameters<
+				ReturnType<typeof registerQuotaDisplaySupport>["handleBodyEvent"]
+			>[1]
+		>,
 		setStatus,
 		notify,
 	};

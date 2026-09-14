@@ -20,6 +20,18 @@ import {
 
 const DEFAULT_ACTION: CyberWarningAction = "warn";
 
+// Body events that mark the response lifecycle of the request that produced
+// them. Events observed between start and terminal are attributable to the
+// active turn; anything else may be a late frame from an earlier request.
+const RESPONSE_START_TYPES = new Set(["response.created", "response.in_progress"]);
+const RESPONSE_TERMINAL_TYPES = new Set([
+	"response.completed",
+	"response.done",
+	"response.incomplete",
+	"response.failed",
+	"error",
+]);
+
 const ACTION_LABELS: Record<CyberWarningAction, string> = {
 	warn: "Show warnings only",
 	stop: "Stop the current turn on the first warning",
@@ -41,16 +53,21 @@ function isCyberWarningAction(value: unknown): value is CyberWarningAction {
 
 export async function registerCyberWarningSupport(
 	pi: ExtensionAPI,
+	options?: { initialAction?: CyberWarningAction },
 ): Promise<CyberWarningSupport> {
 	const config = await readCodexConfig();
-	let action = isCyberWarningAction(config.cyberWarningAction)
+	const configAction = isCyberWarningAction(config.cyberWarningAction)
 		? config.cyberWarningAction
 		: DEFAULT_ACTION;
+	let action = options?.initialAction ?? configAction;
 	let activeContext: ExtensionContext | undefined;
 	let requestedModel: string | undefined;
 	let warnedTurns = 0;
 	let countedCurrentTurn = false;
 	let abortingCurrentTurn = false;
+	// True between a response.created/in_progress and the matching terminal
+	// event for the turn's Codex request; see RESPONSE_*_TYPES above.
+	let responseInFlight = false;
 	const warningKeys = new Set<string>();
 
 	const resetSessionState = (): void => {
@@ -59,6 +76,7 @@ export async function registerCyberWarningSupport(
 		warnedTurns = 0;
 		countedCurrentTurn = false;
 		abortingCurrentTurn = false;
+		responseInFlight = false;
 		warningKeys.clear();
 	};
 
@@ -66,9 +84,21 @@ export async function registerCyberWarningSupport(
 		ctx: ExtensionContext,
 		key: string,
 		message: string,
+		attributed: boolean,
 	): void => {
 		if (warningKeys.has(key) || abortingCurrentTurn) return;
 		warningKeys.add(key);
+
+		if (!attributed) {
+			// The triggering event could not be tied to the request that produced
+			// it (late WebSocket frame or trailing SSE clone event). Warn only:
+			// never count toward stop-after-repeat and never abort a turn.
+			ctx.ui.notify(
+				`${message} (event not attributed to the active request; warning only)`,
+				"warning",
+			);
+			return;
+		}
 
 		if (!countedCurrentTurn) {
 			warnedTurns++;
@@ -92,6 +122,7 @@ export async function registerCyberWarningSupport(
 	const handleServerModel = (
 		ctx: ExtensionContext,
 		serverModel: string,
+		attributed: boolean,
 	): void => {
 		const fromModel = requestedModel ?? ctx.model?.id;
 		if (!fromModel || fromModel.toLowerCase() === serverModel.toLowerCase())
@@ -100,6 +131,7 @@ export async function registerCyberWarningSupport(
 			ctx,
 			serverModelWarningKey(fromModel, serverModel),
 			`${codexProviderLabel(ctx.model?.provider)} cyber warning: requested ${fromModel}, but the server routed this turn to ${serverModel}.`,
+			attributed,
 		);
 	};
 
@@ -145,6 +177,7 @@ export async function registerCyberWarningSupport(
 		requestedModel = activeContext?.model?.id;
 		countedCurrentTurn = false;
 		abortingCurrentTurn = false;
+		responseInFlight = false;
 		warningKeys.clear();
 	});
 
@@ -154,24 +187,32 @@ export async function registerCyberWarningSupport(
 	): void => {
 		if (!isCodexGpt(ctx)) return;
 		const serverModel = getServerModelFromResponseHeaders(headers);
-		if (serverModel) handleServerModel(ctx, serverModel);
+		if (serverModel) handleServerModel(ctx, serverModel, true);
 	};
 
 	const handleBodyEvent = (
 		event: SseBodyEvent,
 		ctxOverride?: ExtensionContext,
 	): void => {
+		const type = typeof event.type === "string" ? event.type : "";
+		if (RESPONSE_START_TYPES.has(type)) responseInFlight = true;
+		else if (RESPONSE_TERMINAL_TYPES.has(type)) responseInFlight = false;
+
 		// activeContext is only ever assigned from a Codex GPT context.
 		const ctx = ctxOverride ?? activeContext;
 		if (!ctx || !isCodexGpt(ctx)) return;
 
+		// Body events are only attributable to the active turn while that
+		// turn's response is in flight; see the comment on RESPONSE_*_TYPES.
+		const attributed = responseInFlight;
 		const serverModel = getServerModelFromBodyEvent(event);
-		if (serverModel) handleServerModel(ctx, serverModel);
+		if (serverModel) handleServerModel(ctx, serverModel, attributed);
 		if (hasTrustedAccessForCyberRecommendation(event)) {
 			notifyWarning(
 				ctx,
 				TRUSTED_ACCESS_WARNING_KEY,
 				`${codexProviderLabel(ctx.model?.provider)} cyber warning: repeated cybersecurity-risk flags enabled additional safety checks. Trusted Access for Cyber or different authentication may be required.`,
+				attributed,
 			);
 		}
 	};

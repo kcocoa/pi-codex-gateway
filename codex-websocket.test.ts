@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	describe,
+	expect,
+	it,
+} from "bun:test";
 import { installCodexWebSocketObserver } from "./codex-websocket.ts";
 
 type Listener = (event: { data: unknown }) => void;
@@ -22,6 +29,10 @@ class FakeWebSocket {
 	}
 }
 
+function setGlobalWebSocket(value: unknown): void {
+	(globalThis as unknown as { WebSocket: unknown }).WebSocket = value;
+}
+
 describe("Codex WebSocket observation", () => {
 	const original = globalThis.WebSocket;
 	let cleanup = () => {};
@@ -30,8 +41,7 @@ describe("Codex WebSocket observation", () => {
 	const events: Array<Record<string, unknown>> = [];
 
 	beforeAll(() => {
-		(globalThis as unknown as { WebSocket: typeof FakeWebSocket }).WebSocket =
-			FakeWebSocket;
+		setGlobalWebSocket(FakeWebSocket);
 		cleanup = installCodexWebSocketObserver((event) => {
 			events.push(event);
 		});
@@ -46,7 +56,7 @@ describe("Codex WebSocket observation", () => {
 
 	afterAll(() => {
 		cleanup();
-		(globalThis as unknown as { WebSocket: typeof original }).WebSocket = original;
+		setGlobalWebSocket(original);
 	});
 
 	it("forwards constructor arguments", () => {
@@ -88,5 +98,75 @@ describe("Codex WebSocket observation", () => {
 		first();
 		second();
 		expect(duplicateEvents).toEqual([{ type: "one" }]);
+	});
+});
+
+describe("Codex WebSocket observer lifecycle", () => {
+	const original = globalThis.WebSocket;
+
+	function installFake(): void {
+		setGlobalWebSocket(FakeWebSocket);
+	}
+
+	afterEach(() => {
+		setGlobalWebSocket(original);
+	});
+
+	it("stays installed while other observers remain, then restores the global", () => {
+		installFake();
+		const events: Array<Record<string, unknown>> = [];
+		const first = installCodexWebSocketObserver((event) => events.push(event));
+		const second = installCodexWebSocketObserver((event) => events.push(event));
+
+		first();
+		expect(globalThis.WebSocket).not.toBe(FakeWebSocket as unknown as typeof WebSocket);
+
+		second();
+		expect(globalThis.WebSocket).toBe(FakeWebSocket as unknown as typeof WebSocket);
+	});
+
+	it("keeps the wrapper transparent for sockets created after uninstall", () => {
+		installFake();
+		const events: Array<Record<string, unknown>> = [];
+		const cleanup = installCodexWebSocketObserver((event) => events.push(event));
+		const wrapped = globalThis.WebSocket as unknown as typeof FakeWebSocket;
+
+		const socket = new wrapped("https://example.test/codex/responses", {
+			headers: { Authorization: "test" },
+		});
+		socket.emit("message", '{"type":"before"}');
+		expect(events).toEqual([{ type: "before" }]);
+
+		cleanup();
+		expect(globalThis.WebSocket).toBe(FakeWebSocket as unknown as typeof WebSocket);
+
+		// Simulates Bun's cached constructor still routing through the old
+		// Proxy after uninstall: construction passes through, no observation.
+		const stale = new wrapped("https://example.test/codex/responses", {
+			headers: { Authorization: "test" },
+		});
+		expect(FakeWebSocket.lastArgs).toEqual([
+			"https://example.test/codex/responses",
+			{ headers: { Authorization: "test" } },
+		]);
+		stale.emit("message", '{"type":"after"}');
+		expect(events).toEqual([{ type: "before" }]);
+	});
+
+	it("reinstalls cleanly after a full uninstall", () => {
+		installFake();
+		const firstCleanup = installCodexWebSocketObserver(() => {});
+		firstCleanup();
+		expect(globalThis.WebSocket).toBe(FakeWebSocket as unknown as typeof WebSocket);
+
+		const events: Array<Record<string, unknown>> = [];
+		const cleanup = installCodexWebSocketObserver((event) => events.push(event));
+		const socket = new (globalThis.WebSocket as unknown as typeof FakeWebSocket)(
+			"https://example.test/codex/responses",
+		);
+		socket.emit("message", '{"type":"reinstalled"}');
+		expect(events).toEqual([{ type: "reinstalled" }]);
+		cleanup();
+		expect(globalThis.WebSocket).toBe(FakeWebSocket as unknown as typeof WebSocket);
 	});
 });

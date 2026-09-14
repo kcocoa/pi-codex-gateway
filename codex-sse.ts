@@ -8,6 +8,14 @@
 export type SseBodyEvent = Record<string, unknown>;
 export type SseBodyEventHandler = (event: SseBodyEvent) => void;
 
+// Events that end a Codex response, matching Pi's own stream parser
+// (mapCodexEvents stops processing at the same types).
+const TERMINAL_EVENT_TYPES = new Set([
+	"response.completed",
+	"response.done",
+	"response.incomplete",
+]);
+
 function parseSseData(block: string): SseBodyEvent | undefined {
 	const data = block
 		.split(/\r?\n/)
@@ -100,7 +108,16 @@ export function createSseEventTapFetch(
 
 		void (async () => {
 			const decoder = new TextDecoder();
-			const events = createSseJsonDecoder(onEvent);
+			let finished = false;
+			const events = createSseJsonDecoder((event) => {
+				onEvent(event);
+				if (
+					typeof event.type === "string" &&
+					TERMINAL_EVENT_TYPES.has(event.type)
+				) {
+					finished = true;
+				}
+			});
 			try {
 				const reader = observed.body?.getReader();
 				if (!reader) return;
@@ -108,6 +125,13 @@ export function createSseEventTapFetch(
 					const { done, value } = await reader.read();
 					if (done) break;
 					events.push(decoder.decode(value, { stream: true }));
+					if (finished) {
+						// Pi's parser stops at the same terminal event. Stop reading
+					// the clone so it cannot linger and dispatch trailing events
+					// (e.g. late metadata) into the next turn.
+						void reader.cancel().catch(() => {});
+						return;
+					}
 				}
 				events.push(decoder.decode());
 				events.finish();

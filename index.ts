@@ -38,6 +38,13 @@ function externalImageGenerationEnabled(config: Record<string, unknown>): boolea
 		(tools as ExternalToolsConfig).imageGeneration === true;
 }
 
+function experimentalWebSocketObserverEnabled(config: Record<string, unknown>): boolean {
+	const experimental = config.experimental;
+	return !!experimental && typeof experimental === "object" &&
+		!Array.isArray(experimental) &&
+		(experimental as Record<string, unknown>).codexWebSocketObserver === true;
+}
+
 function namespaceExternalImageTool(tools: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
 	const index = tools.findIndex(
 		(tool) => tool.type === "function" && tool.name === IMAGE_GENERATION_TOOL_NAME,
@@ -65,6 +72,7 @@ function namespaceExternalImageTool(tools: Array<Record<string, unknown>>): Arra
 
 export default async function codexExtension(pi: ExtensionAPI) {
 	const config = await readCodexConfig();
+	const useWebSocketObserver = experimentalWebSocketObserverEnabled(config);
 	const useExternalImageGeneration = externalImageGenerationEnabled(config);
 	const cyberWarnings = await registerCyberWarningSupport(pi);
 	let getQuotaStatusWidth = (): number => 0;
@@ -83,7 +91,7 @@ export default async function codexExtension(pi: ExtensionAPI) {
 		quotaDisplay.handleBodyEvent(event);
 		hostedImages.handleBodyEvent(event);
 	};
-	const cleanupWebSocketObserver = config.codexWebSocketObserver === true
+	const cleanupWebSocketObserver = useWebSocketObserver
 		? installCodexWebSocketObserver(handleBodyEvent)
 		: () => {};
 	pi.on("session_shutdown", () => cleanupWebSocketObserver());
@@ -112,14 +120,14 @@ export default async function codexExtension(pi: ExtensionAPI) {
 		}).getTransport();
 		if (transport === "sse") return;
 
-		if (config.codexWebSocketObserver === true) {
+		if (useWebSocketObserver) {
 			ctx.ui.notify(
-				`[pi-codex-gateway] OpenAI Codex is using ${transport} transport with the experimental WebSocket observer. Quota/usage events are observed on a best-effort basis; binary messages and exact request context are unsupported.`,
+				`[pi-codex-gateway] OpenAI Codex is using ${transport} transport with the experimental WebSocket observer. Quota/usage events are observed on a best-effort basis; binary messages and exact request context are unsupported. On Bun, the observer only attaches if no Codex WebSocket connection was opened earlier in this process (Pi caches the WebSocket constructor); restart pi after enabling it if no events appear.`,
 				"info",
 			);
 		} else {
 			ctx.ui.notify(
-				`[pi-codex-gateway] OpenAI Codex is using ${transport} transport. Quota/usage updates and remote Cyber warnings are unavailable on WebSocket responses. To restore them: run /settings → Transport → SSE, or enable codexWebSocketObserver in codex.json.`,
+				`[pi-codex-gateway] OpenAI Codex is using ${transport} transport. Quota/usage updates and remote Cyber warnings are unavailable on WebSocket responses. To restore them: run /settings → Transport → SSE, or enable experimental.codexWebSocketObserver in codex-gateway.json.`,
 				"warning",
 			);
 		}

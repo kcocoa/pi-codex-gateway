@@ -49,6 +49,21 @@ text JSON messages from the Codex response socket, does not log raw frames, and
 does not support binary messages or exact request-context association. The observer is fail-open and
 must not affect Pi's official listener or response handling.
 
+Runtime notes:
+
+- On Bun, Pi caches the WebSocket constructor after the first connection, so
+  enabling the observer only takes effect if no Codex WebSocket connection was
+  opened earlier in the same process. Toggle it before the first request, or
+  restart pi after enabling it.
+- The observer uninstalls itself when the extension reloads with the option
+  disabled: the global `WebSocket` constructor is restored and lingering
+  sockets stop parsing messages.
+- Cyber-warning `stop` actions only abort a turn when the warning event can be
+  attributed to that turn's in-flight response; late or trailing events are
+  downgraded to warnings.
+- The SSE fallback of the `auto` transport still goes through the fetch-based
+  observer; its clone branch stops reading at the terminal response event.
+
 At session startup, the extension explains that quota/usage updates and remote
 Cyber warnings are unavailable on WebSocket responses unless this observer is
 enabled. Restore the fully supported SSE path with `/settings` → `Transport` →
