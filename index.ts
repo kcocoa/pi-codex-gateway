@@ -75,15 +75,8 @@ export default async function codexExtension(pi: ExtensionAPI) {
 	const useWebSocketObserver = experimentalWebSocketObserverEnabled(config);
 	const useExternalImageGeneration = externalImageGenerationEnabled(config);
 	const cyberWarnings = await registerCyberWarningSupport(pi);
-	let getQuotaStatusWidth = (): number => 0;
-	const fastMode = await registerCodexFastModeSupport(
-		pi,
-		() => getQuotaStatusWidth(),
-	);
-	const quotaDisplay = registerQuotaDisplaySupport(pi, (ctx) =>
-		fastMode.refreshStatus(ctx),
-	);
-	getQuotaStatusWidth = quotaDisplay.getStatusWidth;
+	const fastMode = await registerCodexFastModeSupport(pi);
+	const quotaDisplay = registerQuotaDisplaySupport(pi);
 	const hostedImages = registerHostedImageReception(pi);
 	const handleBodyEvent = (event: Record<string, unknown>): void => {
 		dumpSseEvent(event);

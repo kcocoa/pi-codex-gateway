@@ -3,7 +3,6 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { isCodexGpt } from "./codex-provider.ts";
-import { visibleStatusWidth } from "./fast-mode.ts";
 import type { SseBodyEvent } from "./codex-sse.ts";
 import {
 	formatWindowLabel,
@@ -62,7 +61,6 @@ export interface QuotaDisplaySupport {
 		ctx: ExtensionContext,
 	): void;
 	handleBodyEvent(event: SseBodyEvent, ctx?: ExtensionContext): void;
-	getStatusWidth(): number;
 }
 
 function mergeSnapshot(
@@ -179,7 +177,6 @@ export function registerQuotaDisplaySupport(
 	let promoMessage: string | undefined;
 	let rateLimitReachedType: string | undefined;
 	let lastUpdatedAt: number | undefined;
-	let statusWidth = 0;
 
 	const clearState = (): void => {
 		snapshots.clear();
@@ -188,7 +185,6 @@ export function registerQuotaDisplaySupport(
 		promoMessage = undefined;
 		rateLimitReachedType = undefined;
 		lastUpdatedAt = undefined;
-		statusWidth = 0;
 	};
 
 	const selectSnapshot = (): RateLimitSnapshot | undefined => {
@@ -231,13 +227,10 @@ export function registerQuotaDisplaySupport(
 			);
 		}
 		if (parts.length === 0) {
-			statusWidth = 0;
 			setStatus(ctx, undefined);
 			return;
 		}
-		const statusText = parts.join(" ");
-		statusWidth = visibleStatusWidth(statusText);
-		setStatus(ctx, statusText);
+		setStatus(ctx, parts.join(" "));
 	};
 
 	const applyUpdate = (
@@ -391,5 +384,5 @@ export function registerQuotaDisplaySupport(
 		handleResponseHeaders(event.headers, ctx);
 	});
 
-	return { handleResponseHeaders, handleBodyEvent, getStatusWidth: () => statusWidth };
+	return { handleResponseHeaders, handleBodyEvent };
 }
