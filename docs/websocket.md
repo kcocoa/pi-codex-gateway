@@ -121,16 +121,20 @@ globalThis.WebSocket = ObservedWebSocket as typeof WebSocket;
 
 ### 主要困难
 
-#### 5.1 全局状态和加载顺序
+#### 5.1 加载顺序与构造函数缓存
 
-Pi 会缓存 WebSocket 构造函数。包装必须早于第一次 provider 请求，否则已经缓存的
-原始构造函数不会经过观察器。全局替换还可能影响 Pi 或其他扩展创建的无关 socket。
+Pi 会在扩展加载前缓存 WebSocket 构造函数，任何替换 `globalThis.WebSocket`
+的方案都覆盖不到已缓存的引用（Pi 0.86+ 的实际故障模式）。`send` 钩子不
+依赖构造路径，对缓存构造函数同样生效；代价是观察从 socket 首次 `send()`
+开始，安装时正在接收中的响应要等到该 socket 的下一次 `send()` 才会被
+观察。
 
-#### 5.2 Bun/Node 运行时差异
+#### 5.2 运行时差异
 
-不同运行时的 WebSocket 构造函数、事件对象和自定义 headers 参数并不完全一致。
-Pi 的实现还可能通过继承原生 WebSocket 添加代理支持，因此需要分别测试 Bun、Node
-以及代理配置。
+不同运行时的 `WebSocket.prototype.send` 可写性、事件对象和自定义 headers
+参数并不完全一致。Pi 的实现还可能通过继承原生 WebSocket 添加代理支持，因此
+需要分别测试 Bun、Node 以及代理配置。`send` 不可写时观察器静默失效
+（fail-open）。
 
 #### 5.3 请求与上下文关联
 

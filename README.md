@@ -51,13 +51,14 @@ must not affect Pi's official listener or response handling.
 
 Runtime notes:
 
-- On Bun, Pi caches the WebSocket constructor after the first connection, so
-  enabling the observer only takes effect if no Codex WebSocket connection was
-  opened earlier in the same process. Toggle it before the first request, or
-  restart pi after enabling it.
+- The observer hooks `WebSocket.prototype.send`: a socket is observed from its
+  first `send()` after the observer is installed, which also covers
+  constructors Pi cached before the extension loaded. Sockets that were
+  mid-response when the observer was installed are only observed from their
+  next `send()`.
 - The observer uninstalls itself when the extension reloads with the option
-  disabled: the global `WebSocket` constructor is restored and lingering
-  sockets stop parsing messages.
+  disabled: the `send` hook is restored and lingering sockets stop parsing
+  messages.
 - Cyber-warning `stop` actions only abort a turn when the warning event can be
   attributed to that turn's in-flight response; late or trailing events are
   downgraded to warnings.
