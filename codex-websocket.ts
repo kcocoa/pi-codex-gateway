@@ -2,12 +2,8 @@ import type { SseBodyEvent, SseBodyEventHandler } from "./codex-sse.ts";
 
 const CODEX_PATH = "/codex/responses";
 const INSTALL_KEY = Symbol.for("pi-codex-gateway.websocket-observer");
-// Bumped whenever the shared-state shape changes, so a reloaded extension
-// never reuses state written by an incompatible version of this module.
-const STATE_VERSION = 4;
 
 type ObserverState = {
-	version: typeof STATE_VERSION;
 	observers: Set<SseBodyEventHandler>;
 	prototype: WebSocket["prototype"];
 	originalSend: WebSocket["send"];
@@ -124,11 +120,9 @@ export function installCodexWebSocketObserver(
 	onEvent: SseBodyEventHandler,
 ): () => void {
 	const globalObject = globalThis as WebSocketGlobal;
+	// Leftover state is assumed to come from this same module; restart pi
+	// after editing the extension.
 	let state = globalObject[INSTALL_KEY];
-	if (state?.version !== STATE_VERSION || state.disposed) {
-		// Unknown, foreign, or already-uninstalled state: start fresh.
-		state = undefined;
-	}
 
 	if (!state) {
 		const prototype = (
@@ -138,7 +132,6 @@ export function installCodexWebSocketObserver(
 		if (typeof originalSend !== "function") return () => {};
 
 		const localState: ObserverState = {
-			version: STATE_VERSION,
 			observers: new Set(),
 			prototype,
 			originalSend,
