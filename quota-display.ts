@@ -3,7 +3,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { isCodexGpt } from "./codex-provider.ts";
-import type { SseBodyEvent } from "./codex-sse.ts";
+import type { SseBodyEvent } from "./sse-tap.ts";
 import {
 	formatWindowLabel,
 	parseRateLimitBodyEvent,

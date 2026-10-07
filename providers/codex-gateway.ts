@@ -8,8 +8,8 @@ import {
 import { openAIResponsesApi } from "@earendil-works/pi-ai/compat";
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import {
-	createSseEventTapFetch,
 	type SseBodyEventHandler,
+	withCodexSseBodyEventTap,
 } from "../codex-sse.ts";
 
 const PROVIDER_ID = "codex-gateway";
@@ -20,13 +20,7 @@ function createResponsesApi(onBodyEvent: SseBodyEventHandler): ProviderStreams {
 	const api = openAIResponsesApi();
 	const withSseBodyEventHook = (options?: {
 		fetch?: typeof globalThis.fetch;
-	}) => ({
-		...(options ?? {}),
-		fetch: createSseEventTapFetch(
-			options?.fetch ?? globalThis.fetch,
-			onBodyEvent,
-		),
-	});
+	}) => withCodexSseBodyEventTap(options, onBodyEvent);
 	return {
 		stream(model, context, options) {
 			return api.stream(model, context, withSseBodyEventHook(options));

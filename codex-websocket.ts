@@ -1,4 +1,4 @@
-import type { SseBodyEvent, SseBodyEventHandler } from "./codex-sse.ts";
+import type { SseBodyEvent, SseBodyEventHandler } from "./sse-tap.ts";
 
 const CODEX_PATH = "/codex/responses";
 const INSTALL_KEY = Symbol.for("pi-codex-gateway.websocket-observer");

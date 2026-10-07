@@ -1,4 +1,4 @@
-import type { SseBodyEvent } from "./codex-sse.ts";
+import type { SseBodyEvent } from "./sse-tap.ts";
 
 export interface RateLimitWindow {
 	usedPercent: number;

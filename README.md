@@ -77,7 +77,8 @@ trade-offs.
 - `index.ts`: registration and provider-scoped capabilities
 - `codex-config.ts`: shared `codex-gateway.json` preference storage
 - `codex-provider.ts`: shared provider matching
-- `codex-sse.ts`: transparent SSE response-body event hook
+- `sse-tap.ts`: provider-agnostic SSE response-body observation
+- `codex-sse.ts`: Codex terminal-event binding for the SSE tap
 - `codex-signals.ts`: server-model and cyber recommendation parsing
 - `cyber-warning-policy.ts`: testable warning decisions and deduplication keys
 - `cyber-warning.ts`: warning policy integration and persistent setting
@@ -85,7 +86,7 @@ trade-offs.
 - `rate-limits.ts`: quota header/event parsing
 - `quota-display.ts`: footer status and detailed quota command
 - `hosted-image-generation.ts`: hosted image SSE reception, metadata parsing, and persistence
-- `sse-dump.ts`: opt-in parsed SSE JSONL dump for protocol analysis
+- `sse-dump.ts`: opt-in JSONL dump of response headers and parsed stream events for all providers
 - `external-tools/`: opt-in local image-generation proxy tools
 - `providers/codex-gateway.ts`: API-key gateway provider
 - `providers/openai-codex.ts`: official provider transport wrapper and SSE observer
@@ -210,9 +211,13 @@ Generated hosted files are saved by default under the current Pi session's
 `/tmp/generated_images/`. The external proxy also supports explicit
 `output_path`, local reference images, and overwrite protection.
 
-For protocol debugging, set `CODEX_SSE_DUMP_PATH` to an explicit JSONL path.
-This dumps parsed SSE events, including potentially sensitive prompts,
-reasoning metadata, and base64 image data; keep it disabled during normal use.
+For protocol debugging, set `SSE_DUMP_PATH` (legacy `CODEX_SSE_DUMP_PATH` also
+works) to an explicit JSONL path. It covers every provider via Pi's
+`after_provider_response` and `provider_stream_event` hooks. Each line is
+`{ts, kind: "headers" | "event", provider, model, ...}`: HTTP status and
+response headers (auth and cookie headers redacted), or a parsed stream event
+as Pi sees it before normalization (not the raw SSE frame). The dump can include sensitive prompts, reasoning
+metadata, and base64 image data; keep it disabled during normal use.
 
 ## License
 

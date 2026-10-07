@@ -9,7 +9,7 @@ import {
 	getServerModelFromResponseHeaders,
 	hasTrustedAccessForCyberRecommendation,
 } from "./codex-signals.ts";
-import type { SseBodyEvent } from "./codex-sse.ts";
+import type { SseBodyEvent } from "./sse-tap.ts";
 import {
 	type CyberWarningAction,
 	REPEATED_WARNING_LIMIT,

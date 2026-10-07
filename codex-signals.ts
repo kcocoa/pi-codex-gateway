@@ -1,4 +1,4 @@
-import type { SseBodyEvent } from "./codex-sse.ts";
+import type { SseBodyEvent } from "./sse-tap.ts";
 
 const TRUSTED_ACCESS_FOR_CYBER = "trusted_access_for_cyber";
 const METADATA_EVENT_TYPES = new Set([

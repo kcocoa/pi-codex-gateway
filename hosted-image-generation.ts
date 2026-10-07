@@ -3,7 +3,7 @@ import { dirname, extname, join } from "node:path";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Container, Image, Text } from "@earendil-works/pi-tui";
-import type { SseBodyEvent, SseBodyEventHandler } from "./codex-sse.ts";
+import type { SseBodyEvent, SseBodyEventHandler } from "./sse-tap.ts";
 
 const HOSTED_IMAGE_MESSAGE = "codex-hosted-image";
 const IMAGE_PARAMETER_KEYS = [

@@ -21,7 +21,7 @@ import { registerCodexFastModeSupport } from "./fast-mode.ts";
 import { codexGatewayProvider } from "./providers/codex-gateway.ts";
 import { registerOpenAICodexSupport } from "./providers/openai-codex.ts";
 import { registerQuotaDisplaySupport } from "./quota-display.ts";
-import { dumpSseEvent } from "./sse-dump.ts";
+import { registerSseDump } from "./sse-dump.ts";
 import { installCodexWebSocketObserver } from "./codex-websocket.ts";
 
 const baseDir = dirname(fileURLToPath(import.meta.url));
@@ -74,12 +74,12 @@ export default async function codexExtension(pi: ExtensionAPI) {
 	const config = await readCodexConfig();
 	const useWebSocketObserver = experimentalWebSocketObserverEnabled(config);
 	const useExternalImageGeneration = externalImageGenerationEnabled(config);
+	registerSseDump(pi);
 	const cyberWarnings = await registerCyberWarningSupport(pi);
 	const fastMode = await registerCodexFastModeSupport(pi);
 	const quotaDisplay = registerQuotaDisplaySupport(pi);
 	const hostedImages = registerHostedImageReception(pi);
 	const handleBodyEvent = (event: Record<string, unknown>): void => {
-		dumpSseEvent(event);
 		cyberWarnings.handleBodyEvent(event);
 		quotaDisplay.handleBodyEvent(event);
 		hostedImages.handleBodyEvent(event);

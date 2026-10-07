@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { createSseEventTapFetch, createSseJsonDecoder } from "./codex-sse.ts";
+import { CODEX_TERMINAL_EVENT_TYPES } from "./codex-sse.ts";
+import { createSseEventTapFetch, createSseJsonDecoder } from "./sse-tap.ts";
 
 async function waitUntil(predicate: () => boolean): Promise<void> {
 	for (let attempt = 0; attempt < 100 && !predicate(); attempt++) {
@@ -8,7 +9,7 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
 	expect(predicate()).toBe(true);
 }
 
-describe("Codex SSE observation", () => {
+describe("SSE body tap", () => {
 	it("decodes JSON events across chunk and CRLF boundaries", () => {
 		const events: Array<Record<string, unknown>> = [];
 		const decoder = createSseJsonDecoder((event) => events.push(event));
@@ -128,8 +129,10 @@ describe("Codex SSE observation", () => {
 				headers: { "content-type": "text/event-stream" },
 			})) as unknown as typeof globalThis.fetch;
 		const events: Array<Record<string, unknown>> = [];
-		const response = await createSseEventTapFetch(baseFetch, (event) =>
-			events.push(event),
+		const response = await createSseEventTapFetch(
+			baseFetch,
+			(event) => events.push(event),
+			{ terminalEventTypes: CODEX_TERMINAL_EVENT_TYPES },
 		)("https://example.test");
 
 		// Consume the original branch like Pi's parser: stop at the terminal event.
@@ -169,8 +172,10 @@ describe("Codex SSE observation", () => {
 				headers: { "content-type": "text/event-stream" },
 			})) as unknown as typeof globalThis.fetch;
 		const events: Array<Record<string, unknown>> = [];
-		const response = await createSseEventTapFetch(baseFetch, (event) =>
-			events.push(event),
+		const response = await createSseEventTapFetch(
+			baseFetch,
+			(event) => events.push(event),
+			{ terminalEventTypes: CODEX_TERMINAL_EVENT_TYPES },
 		)("https://example.test");
 
 		// Wait for the observer branch to cancel itself at the terminal event,
@@ -190,5 +195,48 @@ describe("Codex SSE observation", () => {
 
 		await reader!.cancel();
 		await waitUntil(() => sourceCancelled);
+	});
+
+	it("honors a provider-specific terminal event (Anthropic message_stop)", async () => {
+		let cancelled = false;
+		const encoder = new TextEncoder();
+		const chunks = [
+			'event: message_start\ndata: {"type":"message_start"}\n\n',
+			'event: content_block_delta\ndata: {"type":"content_block_delta"}\n\n',
+			'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+			'event: message_delta\ndata: {"type":"message_delta"}\n\n',
+		];
+		// Never closed: only the configured terminal event may end observation.
+		const body = new ReadableStream<Uint8Array>({
+			start(controller) {
+				for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+			},
+			cancel() {
+				cancelled = true;
+			},
+		});
+		const baseFetch = (async () =>
+			new Response(body, {
+				status: 200,
+				headers: { "content-type": "text/event-stream" },
+			})) as unknown as typeof globalThis.fetch;
+		const events: Array<Record<string, unknown>> = [];
+		const response = await createSseEventTapFetch(
+			baseFetch,
+			(event) => events.push(event),
+			{ terminalEventTypes: new Set(["message_stop"]) },
+		)("https://example.test");
+
+		const reader = response.body?.getReader();
+		expect(reader).toBeDefined();
+		await reader!.read();
+		await reader!.cancel();
+
+		await waitUntil(() => cancelled);
+		expect(events.map((event) => event.type)).toEqual([
+			"message_start",
+			"content_block_delta",
+			"message_stop",
+		]);
 	});
 });
