@@ -365,4 +365,90 @@ describe("Codex quota display", () => {
 		);
 		expect(notify.mock.calls.at(-1)?.[0]).toContain("balance=7.50");
 	});
+
+	it("renders 5h and 7d remaining quota for Anthropic provider responses", async () => {
+		const harness = createHarness();
+		registerQuotaDisplaySupport(harness.pi);
+		const { ctx, setStatus } = createContext("anthropic");
+		await harness.emit(
+			"after_provider_response",
+			{
+				type: "after_provider_response",
+				status: 200,
+				headers: {
+					"anthropic-ratelimit-unified-5h-utilization": "0.03",
+					"anthropic-ratelimit-unified-5h-reset": String(
+						Math.floor(Date.now() / 1000) + 17220,
+					),
+					"anthropic-ratelimit-unified-7d-utilization": "0.23",
+					"anthropic-ratelimit-unified-7d-reset": String(
+						Math.floor(Date.now() / 1000) + 330000,
+					),
+				},
+			},
+			ctx,
+		);
+
+		const footer = setStatus.mock.calls.at(-1)?.[1];
+		expect(footer).toContain("5h:97%");
+		expect(footer).toContain("7d:77%");
+	});
+
+	it("clears an Anthropic rejection once the status is allowed again", async () => {
+		const harness = createHarness();
+		registerQuotaDisplaySupport(harness.pi);
+		const { ctx, notify } = createContext("anthropic");
+		const respond = (status: string) =>
+			harness.emit(
+				"after_provider_response",
+				{
+					type: "after_provider_response",
+					status: 200,
+					headers: {
+						"anthropic-ratelimit-unified-5h-utilization": "1",
+						"anthropic-ratelimit-unified-status": status,
+						"anthropic-ratelimit-unified-representative-claim": "five_hour",
+					},
+				},
+				ctx,
+			);
+		const usage = async () => {
+			await harness.commands.get("anthropic:usage")?.handler("", ctx);
+			return notify.mock.calls.at(-1)?.[0];
+		};
+
+		await respond("rejected");
+		expect(await usage()).toContain("Reached type: rejected (five_hour)");
+		await respond("allowed");
+		expect(await usage()).not.toContain("Reached type");
+	});
+
+	it("registers an anthropic:usage command", async () => {
+		const harness = createHarness();
+		registerQuotaDisplaySupport(harness.pi);
+		const { ctx, notify } = createContext("anthropic");
+		await harness.emit(
+			"after_provider_response",
+			{
+				type: "after_provider_response",
+				status: 200,
+				headers: {
+					"anthropic-ratelimit-unified-5h-utilization": "0.03",
+					"anthropic-ratelimit-unified-5h-reset": "1791388800",
+					"anthropic-ratelimit-unified-7d-utilization": "0.23",
+					"anthropic-ratelimit-unified-7d-reset": "1791702000",
+				},
+			},
+			ctx,
+		);
+		await harness.commands.get("anthropic:usage")?.handler("", ctx);
+
+		expect(notify.mock.calls.at(-1)?.[0]).toContain("Anthropic quota");
+		expect(notify.mock.calls.at(-1)?.[0]).toContain(
+			"Primary (5h): 3% used, 97% left",
+		);
+		expect(notify.mock.calls.at(-1)?.[0]).toContain(
+			"Secondary (7d): 23% used, 77% left",
+		);
+	});
 });

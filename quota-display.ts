@@ -2,7 +2,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { isCodexGpt } from "./codex-provider.ts";
+import { isAnthropic, isCodexGpt } from "./codex-provider.ts";
 import type { SseBodyEvent } from "./sse-tap.ts";
 import {
 	formatWindowLabel,
@@ -93,6 +93,13 @@ function severityColor(window: RateLimitWindow): "dim" | "warning" | "error" {
 function formatPercent(value: number): string {
 	const rounded = Math.round(value * 10) / 10;
 	return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+function isSupportedQuotaContext(
+	ctx: Pick<ExtensionContext, "model"> | undefined,
+): boolean {
+	if (!ctx) return false;
+	return isCodexGpt(ctx) || isAnthropic(ctx);
 }
 
 export function formatSubscriptionType(
@@ -204,7 +211,7 @@ export function registerQuotaDisplaySupport(
 	};
 
 	const renderStatus = (ctx: ExtensionContext): void => {
-		if (!isCodexGpt(ctx)) {
+		if (!isSupportedQuotaContext(ctx)) {
 			setStatus(ctx, undefined);
 			return;
 		}
@@ -270,12 +277,12 @@ export function registerQuotaDisplaySupport(
 			promoMessage = update.promoMessage;
 			changed = true;
 		}
-		if (
-			update.rateLimitReachedType !== undefined &&
-			update.rateLimitReachedType !== rateLimitReachedType
-		) {
-			rateLimitReachedType = update.rateLimitReachedType;
-			changed = true;
+		if (update.rateLimitReachedType !== undefined) {
+			const next = update.rateLimitReachedType ?? undefined;
+			if (next !== rateLimitReachedType) {
+				rateLimitReachedType = next;
+				changed = true;
+			}
 		}
 		if (!changed) return false;
 		lastUpdatedAt = Date.now();
@@ -283,13 +290,13 @@ export function registerQuotaDisplaySupport(
 		return true;
 	};
 
-	const formatDetails = (): string => {
+	const formatDetails = (providerName: string): string => {
 		if (snapshots.size === 0 && !promoMessage && !rateLimitReachedType) {
-			return "No Codex quota data has been observed in response headers or SSE body events yet.";
+			return `No ${providerName} quota data has been observed in response headers or SSE body events yet.`;
 		}
 
 		const lines = [
-			`Codex quota${lastUpdatedAt ? ` (updated ${new Date(lastUpdatedAt).toLocaleString()})` : ""}`,
+			`${providerName} quota${lastUpdatedAt ? ` (updated ${new Date(lastUpdatedAt).toLocaleString()})` : ""}`,
 		];
 		const subscription = formatSubscriptionType(planType);
 		if (subscription) lines.push(`Plan: ${subscription}`);
@@ -322,13 +329,26 @@ export function registerQuotaDisplaySupport(
 	pi.registerCommand("codex:usage", {
 		description: "Show the latest Codex quota snapshot",
 		handler: async (_args, ctx) => {
-			ctx.ui.notify(formatDetails(), snapshots.size > 0 ? "info" : "warning");
+			ctx.ui.notify(
+				formatDetails("Codex"),
+				snapshots.size > 0 ? "info" : "warning",
+			);
+		},
+	});
+
+	pi.registerCommand("anthropic:usage", {
+		description: "Show the latest Anthropic quota snapshot",
+		handler: async (_args, ctx) => {
+			ctx.ui.notify(
+				formatDetails("Anthropic"),
+				snapshots.size > 0 ? "info" : "warning",
+			);
 		},
 	});
 
 	pi.on("session_start", (_event, ctx) => {
 		clearState();
-		activeContext = isCodexGpt(ctx) ? ctx : undefined;
+		activeContext = isSupportedQuotaContext(ctx) ? ctx : undefined;
 		setStatus(ctx, undefined);
 	});
 	pi.on("session_shutdown", (_event, ctx) => {
@@ -336,19 +356,19 @@ export function registerQuotaDisplaySupport(
 		setStatus(ctx, undefined);
 	});
 	pi.on("turn_start", (_event, ctx) => {
-		activeContext = isCodexGpt(ctx) ? ctx : undefined;
+		activeContext = isSupportedQuotaContext(ctx) ? ctx : undefined;
 		renderStatus(ctx);
 	});
 	pi.on("model_select", (_event, ctx) => {
 		clearState();
-		activeContext = isCodexGpt(ctx) ? ctx : undefined;
+		activeContext = isSupportedQuotaContext(ctx) ? ctx : undefined;
 		setStatus(ctx, undefined);
 	});
 	const handleResponseHeaders = (
 		headers: Record<string, string>,
 		ctx: ExtensionContext,
 	): void => {
-		if (!isCodexGpt(ctx)) return;
+		if (!isSupportedQuotaContext(ctx)) return;
 		const update = parseRateLimitHeaders(headers);
 		const refreshed = update ? applyUpdate(update, ctx) : false;
 		debugNotify(

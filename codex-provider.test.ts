@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import {
 	codexProviderLabel,
+	isAnthropic,
+	isAnthropicProvider,
 	isCodexGpt,
 	isOpenAICodexGpt,
 } from "./codex-provider.ts";
@@ -20,5 +22,12 @@ describe("Codex provider matching", () => {
 		expect(isOpenAICodexGpt(context("openai-codex"))).toBe(true);
 		expect(codexProviderLabel("codex-gateway")).toBe("Codex Gateway");
 		expect(codexProviderLabel("openai-codex")).toBe("OpenAI Codex");
+	});
+
+	it("identifies Anthropic provider and context", () => {
+		expect(isAnthropicProvider("anthropic")).toBe(true);
+		expect(isAnthropicProvider("codex-gateway")).toBe(false);
+		expect(isAnthropic(context("anthropic", "claude-sonnet-4-5"))).toBe(true);
+		expect(isAnthropic(context("openai-codex"))).toBe(false);
 	});
 });

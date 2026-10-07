@@ -149,4 +149,70 @@ describe("Codex rate limits", () => {
 		expect(remainingPercent({ usedPercent: 12.5 })).toBe(87.5);
 		expect(remainingPercent({ usedPercent: 120 })).toBe(0);
 	});
+
+	it("parses Anthropic unified 5h and 7d quota headers", () => {
+		const update = parseRateLimitHeaders({
+			"anthropic-ratelimit-unified-5h-utilization": "0.03",
+			"anthropic-ratelimit-unified-5h-reset": "1791388800",
+			"anthropic-ratelimit-unified-7d-utilization": "0.23",
+			"anthropic-ratelimit-unified-7d-reset": "1791702000",
+			"anthropic-ratelimit-unified-representative-claim": "five_hour",
+			"anthropic-ratelimit-unified-status": "allowed",
+		});
+
+		expect(update).toMatchObject({
+			source: "response_headers",
+			activeLimitId: "anthropic",
+			snapshots: [
+				{
+					limitId: "anthropic",
+					limitName: "Anthropic",
+					primary: {
+						usedPercent: 3,
+						windowMinutes: 300,
+						resetsAt: 1791388800,
+					},
+					secondary: {
+						usedPercent: 23,
+						windowMinutes: 10080,
+						resetsAt: 1791702000,
+					},
+				},
+			],
+		});
+		expect(update?.rateLimitReachedType).toBeNull();
+	});
+
+	it("treats Anthropic utilization as a fraction and clamps over-limit values", () => {
+		const update = parseRateLimitHeaders({
+			"anthropic-ratelimit-unified-5h-utilization": "1.02",
+			"anthropic-ratelimit-unified-7d-utilization": "1",
+			"anthropic-ratelimit-unified-status": "rejected",
+			"anthropic-ratelimit-unified-representative-claim": "five_hour",
+		});
+
+		expect(update?.snapshots[0]?.primary?.usedPercent).toBe(100);
+		expect(update?.snapshots[0]?.secondary?.usedPercent).toBe(100);
+		expect(update?.rateLimitReachedType).toBe("rejected (five_hour)");
+	});
+
+	it("does not treat Anthropic allowed_warning as reached", () => {
+		const update = parseRateLimitHeaders({
+			"anthropic-ratelimit-unified-5h-utilization": "0.9",
+			"anthropic-ratelimit-unified-status": "allowed_warning",
+			"anthropic-ratelimit-unified-representative-claim": "five_hour",
+		});
+
+		expect(update?.rateLimitReachedType).toBeNull();
+	});
+
+	it("skips Anthropic windows without utilization", () => {
+		const update = parseRateLimitHeaders({
+			"anthropic-ratelimit-unified-5h-reset": "1791388800",
+			"anthropic-ratelimit-unified-7d-utilization": "0.5",
+		});
+
+		expect(update?.snapshots[0]?.primary).toBeUndefined();
+		expect(update?.snapshots[0]?.secondary?.usedPercent).toBe(50);
+	});
 });

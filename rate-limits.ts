@@ -28,7 +28,8 @@ export interface RateLimitUpdate {
 	snapshots: RateLimitSnapshot[];
 	activeLimitId?: string;
 	promoMessage?: string;
-	rateLimitReachedType?: string;
+	/** `undefined` = not reported; `null` = reported as not reached (clears it). */
+	rateLimitReachedType?: string | null;
 }
 
 function normalizeLimitId(value: string): string {
@@ -142,10 +143,66 @@ function hasSnapshotData(snapshot: RateLimitSnapshot): boolean {
 	);
 }
 
+const ANTHROPIC_UNIFIED_PREFIX = "anthropic-ratelimit-unified-";
+
+function parseAnthropicWindow(
+	headers: Map<string, string>,
+	window: "5h" | "7d",
+	windowMinutes: number,
+): RateLimitWindow | undefined {
+	// Utilization is a fraction (0..1, may exceed 1 when over the limit).
+	const utilization = finiteNumber(
+		headers.get(`${ANTHROPIC_UNIFIED_PREFIX}${window}-utilization`),
+	);
+	if (utilization === undefined) return undefined;
+	return {
+		usedPercent: Math.min(100, Math.max(0, utilization * 100)),
+		windowMinutes,
+		resetsAt: integer(
+			headers.get(`${ANTHROPIC_UNIFIED_PREFIX}${window}-reset`),
+		),
+	};
+}
+
+function parseAnthropicUnifiedHeaders(
+	headers: Map<string, string>,
+): RateLimitUpdate | undefined {
+	const primary = parseAnthropicWindow(headers, "5h", 300);
+	const secondary = parseAnthropicWindow(headers, "7d", 10_080);
+	const status = trimmed(headers.get(`${ANTHROPIC_UNIFIED_PREFIX}status`));
+	if (!primary && !secondary && !status) return undefined;
+
+	const claim = trimmed(
+		headers.get(`${ANTHROPIC_UNIFIED_PREFIX}representative-claim`),
+	);
+	// Status is `allowed`, `allowed_warning`, or `rejected`; only the last
+	// means a limit was hit. Any reported status clears an earlier rejection.
+	const reached =
+		status === "rejected"
+			? claim
+				? `${status} (${claim})`
+				: status
+			: status
+				? null
+				: undefined;
+
+	return {
+		source: "response_headers",
+		snapshots: [
+			{ limitId: "anthropic", limitName: "Anthropic", primary, secondary },
+		],
+		activeLimitId: "anthropic",
+		rateLimitReachedType: reached,
+	};
+}
+
 export function parseRateLimitHeaders(
 	headers: Record<string, string>,
 ): RateLimitUpdate | undefined {
 	const normalized = normalizedHeaders(headers);
+	const anthropic = parseAnthropicUnifiedHeaders(normalized);
+	if (anthropic) return anthropic;
+
 	const limitIds = new Set<string>();
 	let sawRateLimitHeader = false;
 

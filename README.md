@@ -9,6 +9,9 @@ providers:
 Shared features include hosted web search, image generation, cyber warnings,
 service-tier selection, and quota display.
 
+It also shows a quota usage bar for Pi's built-in `anthropic` provider (see
+[Quota display](#quota-display)).
+
 ## Provider behavior
 
 ### `codex-gateway`
@@ -71,6 +74,15 @@ enabled. Restore the fully supported SSE path with `/settings` → `Transport` �
 `SSE`, or set `"transport": "sse"` in `~/.pi/agent/settings.json` (or the project
 `.pi/settings.json`). See [docs/websocket.md](docs/websocket.md) for the transport
 trade-offs.
+
+### `anthropic`
+
+Only the quota usage bar and `/anthropic:usage` are supported. The extension is
+a read-only monitor for this provider: it reads the
+`anthropic-ratelimit-unified-*` headers from responses Pi already receives. It
+does not change requests, add tools, issue extra requests (so the subscription
+plan, e.g. Pro / Max 5x / Max 20x, is not shown), or apply any other feature in
+this README to Anthropic models.
 
 ## Layout
 
@@ -154,23 +166,28 @@ shows `fast⚡`.
 
 ## Quota display
 
-For either provider, quota data is parsed from normal response headers and
-optional SSE response-body events:
+Quota data is parsed from normal response headers and optional SSE
+response-body events:
 
-- `x-<limit>-primary-*` and `x-<limit>-secondary-*`;
-- `x-codex-plan-type`, `x-codex-credits-*`, `x-codex-active-limit`, promo,
-  and reached-type headers;
-- `codex.rate_limits` SSE body events.
+- Codex: `x-<limit>-primary-*` and `x-<limit>-secondary-*`;
+  `x-codex-plan-type`, `x-codex-credits-*`, `x-codex-active-limit`, promo,
+  and reached-type headers; `codex.rate_limits` SSE body events.
+- Anthropic: `anthropic-ratelimit-unified-5h-*` and
+  `anthropic-ratelimit-unified-7d-*` (utilization and reset), plus
+  `anthropic-ratelimit-unified-status`. These headers are only sent for
+  subscription (OAuth) logins, not API keys.
 
-The footer shows the normalized subscription type, remaining percentages, and
-compact reset countdowns, for example
-`pro5x 5h:82%↺3h44m 7d:54%↺5d17h`. Reset countdowns contain at most two time
-units. Observed plan types are normalized to `plus`, `pro5x`, `pro20x`,
-`business`, or `business pro` when recognized.
+The footer shows remaining percentages and compact reset countdowns, plus the
+normalized subscription type for Codex, for example
+`pro5x 5h:82%↺3h44m 7d:54%↺5d17h` (Codex) or `5h:97%↺4h47m 7d:77%↺3d20h`
+(Anthropic). Reset countdowns contain at most two time units. Observed Codex
+plan types are normalized to `plus`, `pro5x`, `pro20x`, `business`, or
+`business pro` when recognized.
 
-Run `/codex:usage` for all observed limits, absolute reset times, plan type,
-credits, and server messages. No separate quota request is made; the display
-remains empty until a provider supplies quota data.
+Run `/codex:usage` or `/anthropic:usage` for all observed limits, absolute
+reset times, plan type, credits, and server messages. No separate quota
+request is made; the display remains empty until a provider supplies quota
+data.
 
 ## Hosted web search
 

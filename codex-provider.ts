@@ -2,6 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export const CODEX_GATEWAY_PROVIDER_ID = "codex-gateway";
 export const OPENAI_CODEX_PROVIDER_ID = "openai-codex";
+export const ANTHROPIC_PROVIDER_ID = "anthropic";
 
 export function isCodexProvider(provider: string | undefined): boolean {
 	return (
@@ -10,10 +11,18 @@ export function isCodexProvider(provider: string | undefined): boolean {
 	);
 }
 
+export function isAnthropicProvider(provider: string | undefined): boolean {
+	return provider === ANTHROPIC_PROVIDER_ID;
+}
+
 export function isCodexGpt(ctx: Pick<ExtensionContext, "model">): boolean {
 	return (
 		isCodexProvider(ctx.model?.provider) && /^gpt-/i.test(ctx.model?.id ?? "")
 	);
+}
+
+export function isAnthropic(ctx: Pick<ExtensionContext, "model">): boolean {
+	return isAnthropicProvider(ctx.model?.provider);
 }
 
 export function isOpenAICodexGpt(
