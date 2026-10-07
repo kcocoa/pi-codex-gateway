@@ -1,15 +1,9 @@
 # TODO
 
-- [ ] Finish Anthropic Messages support. Quota parsing from the
-  `anthropic-ratelimit-unified-*` response headers is done. Still to do:
-  - add `providers/anthropic.ts` that wraps the Anthropic Messages API and
-    passes `terminalEventTypes: ["message_stop"]` to `sse-tap.ts`, the way
-    `providers/openai-codex.ts` does for Codex;
-  - decide which Anthropic SSE events to consume (`message_start` and
-    `message_delta` usage, `error`; `ping` is ignored). `handleBodyEvent` in
-    `quota-display.ts` is still Codex-only;
-  - make `cyber-warning.ts` work with more than one provider (`isCodexGpt`);
-  - add the provider to the README file list and tests.
+Note: Anthropic Messages SSE events carry no quota data; the
+`anthropic-ratelimit-unified-*` response headers are the only source. No
+Anthropic SSE tap or provider wrapper is needed.
+
 - [ ] Check the Bun constructor-cache note is still true. The observer now hooks
   `WebSocket.prototype.send` instead of replacing the constructor, so it may
   no longer matter. If so, drop the note from the `session_start` notify in

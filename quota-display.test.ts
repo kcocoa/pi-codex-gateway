@@ -394,6 +394,35 @@ describe("Codex quota display", () => {
 		expect(footer).toContain("7d:77%");
 	});
 
+	it("shows a window as unknown once its reset time has passed", async () => {
+		const harness = createHarness();
+		registerQuotaDisplaySupport(harness.pi);
+		const { ctx, setStatus, notify } = createContext("anthropic");
+		const nowSec = Math.floor(Date.now() / 1000);
+		await harness.emit(
+			"after_provider_response",
+			{
+				type: "after_provider_response",
+				status: 200,
+				headers: {
+					"anthropic-ratelimit-unified-5h-utilization": "0.95",
+					"anthropic-ratelimit-unified-5h-reset": String(nowSec - 60),
+					"anthropic-ratelimit-unified-7d-utilization": "0.23",
+					"anthropic-ratelimit-unified-7d-reset": String(nowSec + 330000),
+				},
+			},
+			ctx,
+		);
+
+		const footer = setStatus.mock.calls.at(-1)?.[1];
+		expect(footer).toContain("5h:?↺now");
+		expect(footer).toContain("7d:77%");
+		await harness.commands.get("anthropic:usage")?.handler("", ctx);
+		expect(notify.mock.calls.at(-1)?.[0]).toContain(
+			"Primary (5h): unknown, reset at",
+		);
+	});
+
 	it("clears an Anthropic rejection once the status is allowed again", async () => {
 		const harness = createHarness();
 		registerQuotaDisplaySupport(harness.pi);

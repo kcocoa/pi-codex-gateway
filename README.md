@@ -77,18 +77,21 @@ trade-offs.
 
 ### `anthropic`
 
-Only the quota usage bar and `/anthropic:usage` are supported. The extension is
-a read-only monitor for this provider: it reads the
-`anthropic-ratelimit-unified-*` headers from responses Pi already receives. It
-does not change requests, add tools, issue extra requests (so the subscription
-plan, e.g. Pro / Max 5x / Max 20x, is not shown), or apply any other feature in
-this README to Anthropic models.
+Only the quota usage bar, `/anthropic:usage`, and a server-side fallback
+warning are supported. The extension is a read-only monitor for this provider:
+it reads the `anthropic-ratelimit-unified-*` headers from responses Pi already
+receives, and warns when a finished reply's `responseModel` differs from the
+selected model (Anthropic's server-side model fallback, which Pi applies but
+does not display). It does not change requests, add tools, issue extra
+requests (so the subscription plan, e.g. Pro / Max 5x / Max 20x, is not shown),
+or apply any other feature in this README to Anthropic models.
 
 ## Layout
 
 - `index.ts`: registration and provider-scoped capabilities
 - `codex-config.ts`: shared `codex-gateway.json` preference storage
 - `codex-provider.ts`: shared provider matching
+- `anthropic-fallback.ts`: read-only Anthropic server-side fallback warning
 - `sse-tap.ts`: provider-agnostic SSE response-body observation
 - `codex-sse.ts`: Codex terminal-event binding for the SSE tap
 - `codex-signals.ts`: server-model and cyber recommendation parsing
@@ -180,7 +183,9 @@ response-body events:
 The footer shows remaining percentages and compact reset countdowns, plus the
 normalized subscription type for Codex, for example
 `pro5x 5h:82%↺3h44m 7d:54%↺5d17h` (Codex) or `5h:97%↺4h47m 7d:77%↺3d20h`
-(Anthropic). Reset countdowns contain at most two time units. Observed Codex
+(Anthropic). Reset countdowns contain at most two time units. Once a window's
+reset time has passed and no newer response has arrived, its percentage shows
+as `?` (e.g. `5h:?↺now`) instead of the stale value. Observed Codex
 plan types are normalized to `plus`, `pro5x`, `pro20x`, `business`, or
 `business pro` when recognized.
 

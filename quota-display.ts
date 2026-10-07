@@ -95,6 +95,11 @@ function formatPercent(value: number): string {
 	return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
+/** The window has reset since it was observed, so its usage is unknown. */
+function isStale(window: RateLimitWindow, nowMs = Date.now()): boolean {
+	return window.resetsAt !== undefined && window.resetsAt * 1000 <= nowMs;
+}
+
 function isSupportedQuotaContext(
 	ctx: Pick<ExtensionContext, "model"> | undefined,
 ): boolean {
@@ -167,6 +172,8 @@ function formatWindowDetails(
 ): string | undefined {
 	if (!window) return undefined;
 	const label = formatWindowLabel(window, name);
+	if (isStale(window))
+		return `  ${name} (${label}): unknown, reset at ${formatReset(window.resetsAt)} has passed`;
 	return (
 		`  ${name} (${label}): ${formatPercent(window.usedPercent)}% used, ` +
 		`${formatPercent(remainingPercent(window))}% left, resets ${formatReset(window.resetsAt)}`
@@ -225,11 +232,14 @@ export function registerQuotaDisplaySupport(
 		] as const) {
 			if (!window) continue;
 			const label = formatWindowLabel(window, fallback);
-			const remaining = `${formatPercent(remainingPercent(window))}%`;
+			const stale = isStale(window);
+			const remaining = stale
+				? "?"
+				: `${formatPercent(remainingPercent(window))}%`;
 			const reset = formatResetCountdown(window.resetsAt);
 			parts.push(
 				ctx.ui.theme.fg("dim", `${label}:`) +
-					ctx.ui.theme.fg(severityColor(window), remaining) +
+					ctx.ui.theme.fg(stale ? "dim" : severityColor(window), remaining) +
 					(reset ? ctx.ui.theme.fg("dim", `↺${reset}`) : ""),
 			);
 		}
