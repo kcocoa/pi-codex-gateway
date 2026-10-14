@@ -7,8 +7,12 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
 }));
 
 const {
+	formatLocalDateTime,
+	formatReset,
+	formatResetClock,
 	formatResetCountdown,
 	formatSubscriptionType,
+	formatWindowReset,
 	registerQuotaDisplaySupport,
 } = await import("./quota-display.ts");
 
@@ -87,6 +91,111 @@ describe("Codex quota display", () => {
 		).toBe("3h44m");
 	});
 
+	it("formats reset times in the requested timezone with its offset", () => {
+		// 1791388800 = 2026-10-07T16:00:00Z
+		const epoch = 1791388800;
+		expect(formatReset(epoch, "UTC")).toBe("2026-10-07 16:00 (UTC+00:00)");
+		expect(formatReset(epoch, "Asia/Shanghai")).toBe(
+			"2026-10-08 00:00 (UTC+08:00)",
+		);
+		// The offset follows the date, so a DST zone shows its summer offset.
+		expect(formatReset(epoch, "America/New_York")).toBe(
+			"2026-10-07 12:00 (UTC-04:00)",
+		);
+		expect(formatReset(undefined, "UTC")).toBe("unknown");
+		expect(formatLocalDateTime(Number.NaN, "UTC")).toBe("unknown");
+	});
+
+	it("defaults reset times to the local timezone", () => {
+		const epoch = 1791388800;
+		const localZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+		expect(formatReset(epoch)).toBe(formatReset(epoch, localZone));
+	});
+
+	it("formats reset clock times as 24-hour HH:MM in requested timezone", () => {
+		// 1791388800 = 2026-10-07T16:00:00Z
+		const epoch = 1791388800;
+		expect(formatResetClock(epoch, "UTC")).toBe("16:00");
+		expect(formatResetClock(epoch, "Asia/Shanghai")).toBe("00:00");
+		expect(formatResetClock(epoch, "America/New_York")).toBe("12:00");
+		expect(formatResetClock(undefined, "UTC")).toBeUndefined();
+		expect(formatResetClock(Number.NaN, "UTC")).toBeUndefined();
+	});
+
+	it("switches 5h window to clock HH:MM when remaining quota < 10% or refresh time < 1h", () => {
+		const epoch = 1791388800; // 2026-10-07T16:00:00Z -> 00:00 in Asia/Shanghai
+		const timeZone = "Asia/Shanghai";
+		// 1. 5h window, remaining quota 5% (< 10%), reset in 3 hours (> 1h)
+		const lowQuota5h = {
+			usedPercent: 95,
+			windowMinutes: 300,
+			resetsAt: epoch,
+		};
+		const now3hBefore = (epoch - 3 * 3600) * 1000;
+		expect(
+			formatWindowReset(lowQuota5h, "5h", now3hBefore, timeZone),
+		).toBe("00:00");
+
+		// 2. 5h window, remaining quota 80% (>= 10%), reset in 45 minutes (< 1h)
+		const soonReset5h = {
+			usedPercent: 20,
+			windowMinutes: 300,
+			resetsAt: epoch,
+		};
+		const now45mBefore = (epoch - 45 * 60) * 1000;
+		expect(
+			formatWindowReset(soonReset5h, "5h", now45mBefore, timeZone),
+		).toBe("00:00");
+
+		// 3. 5h window, remaining quota 80% (>= 10%), reset in 3h44m (>= 1h) -> countdown
+		const normal5h = {
+			usedPercent: 20,
+			windowMinutes: 300,
+			resetsAt: epoch,
+		};
+		const now3h44mBefore = (epoch - (3 * 3600 + 44 * 60)) * 1000;
+		expect(
+			formatWindowReset(normal5h, "5h", now3h44mBefore, timeZone),
+		).toBe("3h44m");
+
+		// 4. Boundary: remaining quota exactly 10% (usedPercent = 90) -> countdown
+		const exactly10Percent = {
+			usedPercent: 90,
+			windowMinutes: 300,
+			resetsAt: epoch,
+		};
+		expect(
+			formatWindowReset(exactly10Percent, "5h", now3hBefore, timeZone),
+		).toBe("3h");
+
+		// 5. Boundary: remaining quota 9.9% (usedPercent = 90.1) -> clock
+		const under10Percent = {
+			usedPercent: 90.1,
+			windowMinutes: 300,
+			resetsAt: epoch,
+		};
+		expect(
+			formatWindowReset(under10Percent, "5h", now3hBefore, timeZone),
+		).toBe("00:00");
+
+		// 6. Reset has passed -> "now"
+		const staleNow = (epoch + 60) * 1000;
+		expect(
+			formatWindowReset(normal5h, "5h", staleNow, timeZone),
+		).toBe("now");
+
+		// 7. 7d window, remaining quota 5% (< 10%), but reset in 5 days -> stays countdown
+		const lowQuota7d = {
+			usedPercent: 95,
+			windowMinutes: 10080,
+			resetsAt: epoch,
+		};
+		const now5dBefore = (epoch - 5 * 86400) * 1000;
+		expect(
+			formatWindowReset(lowQuota7d, "7d", now5dBefore, timeZone),
+		).toBe("5d");
+	});
+
 	it("renders remaining quota from response headers in the footer", async () => {
 		const harness = createHarness();
 		registerQuotaDisplaySupport(harness.pi);
@@ -161,6 +270,59 @@ describe("Codex quota display", () => {
 		expect(setStatus.mock.calls.at(-1)).toEqual([
 			"codex-quota",
 			"pro5x 5h:75%↺3h44m 7d:50%↺5d17h",
+		]);
+	});
+
+	it("shows HH:MM in the footer when 5h quota is low or reset time is under 1h", async () => {
+		const harness = createHarness();
+		registerQuotaDisplaySupport(harness.pi);
+		const { ctx, setStatus } = createContext("openai-codex");
+		const nowSec = Math.floor(Date.now() / 1000);
+		const resetSec = nowSec + 3 * 3600; // 3 hours away
+		const expectedClock = formatResetClock(resetSec);
+
+		// Case 1: 5h remaining quota is 5% (< 10%)
+		await harness.emit(
+			"after_provider_response",
+			{
+				type: "after_provider_response",
+				status: 200,
+				headers: {
+					"x-codex-plan-type": "prolite",
+					"x-codex-primary-used-percent": "95",
+					"x-codex-primary-window-minutes": "300",
+					"x-codex-primary-reset-at": String(resetSec),
+				},
+			},
+			ctx,
+		);
+
+		expect(setStatus.mock.calls.at(-1)).toEqual([
+			"codex-quota",
+			`pro5x 5h:5%↺${expectedClock}`,
+		]);
+
+		// Case 2: 5h remaining quota is 80%, but reset is in 45m (< 1h)
+		const soonResetSec = nowSec + 45 * 60;
+		const expectedSoonClock = formatResetClock(soonResetSec);
+		await harness.emit(
+			"after_provider_response",
+			{
+				type: "after_provider_response",
+				status: 200,
+				headers: {
+					"x-codex-plan-type": "prolite",
+					"x-codex-primary-used-percent": "20",
+					"x-codex-primary-window-minutes": "300",
+					"x-codex-primary-reset-at": String(soonResetSec),
+				},
+			},
+			ctx,
+		);
+
+		expect(setStatus.mock.calls.at(-1)).toEqual([
+			"codex-quota",
+			`pro5x 5h:80%↺${expectedSoonClock}`,
 		]);
 	});
 
@@ -456,6 +618,8 @@ describe("Codex quota display", () => {
 		const harness = createHarness();
 		registerQuotaDisplaySupport(harness.pi);
 		const { ctx, notify } = createContext("anthropic");
+		// Relative resets: fixed timestamps go stale as soon as they pass.
+		const nowSec = Math.floor(Date.now() / 1000);
 		await harness.emit(
 			"after_provider_response",
 			{
@@ -463,9 +627,9 @@ describe("Codex quota display", () => {
 				status: 200,
 				headers: {
 					"anthropic-ratelimit-unified-5h-utilization": "0.03",
-					"anthropic-ratelimit-unified-5h-reset": "1791388800",
+					"anthropic-ratelimit-unified-5h-reset": String(nowSec + 17_220),
 					"anthropic-ratelimit-unified-7d-utilization": "0.23",
-					"anthropic-ratelimit-unified-7d-reset": "1791702000",
+					"anthropic-ratelimit-unified-7d-reset": String(nowSec + 330_000),
 				},
 			},
 			ctx,

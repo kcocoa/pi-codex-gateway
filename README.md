@@ -183,16 +183,20 @@ response-body events:
 The footer shows remaining percentages and compact reset countdowns, plus the
 normalized subscription type for Codex, for example
 `pro5x 5h:82%↺3h44m 7d:54%↺5d17h` (Codex) or `5h:97%↺4h47m 7d:77%↺3d20h`
-(Anthropic). Reset countdowns contain at most two time units. Once a window's
-reset time has passed and no newer response has arrived, its percentage shows
-as `?` (e.g. `5h:?↺now`) instead of the stale value. Observed Codex
-plan types are normalized to `plus`, `pro5x`, `pro20x`, `business`, or
-`business pro` when recognized.
+(Anthropic). Reset countdowns contain at most two time units. When the 5h
+remaining quota drops below 10% or its reset time is under 1h, it displays the
+absolute reset time as `HH:MM` in the local timezone (e.g. `5h:8%↺14:30` or
+`5h:75%↺14:30`). Once a window's reset time has passed and no newer response
+has arrived, its percentage shows as `?` (e.g. `5h:?↺now`) instead of the
+stale value. Observed Codex plan types are normalized to `plus`, `pro5x`,
+`pro20x`, `business`, or `business pro` when recognized.
 
-Run `/codex:usage` or `/anthropic:usage` for all observed limits, absolute
-reset times, plan type, credits, and server messages. No separate quota
-request is made; the display remains empty until a provider supplies quota
-data.
+Run `/codex:usage` or `/anthropic:usage` for all observed limits, reset times,
+plan type, credits, and server messages. Reset values are unix timestamps, so
+they are rendered in the local timezone with its UTC offset, for example
+`resets 2026-10-08 00:00 (UTC+08:00)`; the offset is the one in effect at the
+reset time, so DST is handled. No separate quota request is made; the display
+remains empty until a provider supplies quota data.
 
 ## Hosted web search
 
