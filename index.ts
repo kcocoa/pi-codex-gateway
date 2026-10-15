@@ -7,6 +7,10 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { isCodexGpt, isOpenAICodexGpt } from "./codex-provider.ts";
 import { readCodexConfig } from "./codex-config.ts";
+import {
+	externalImageGenerationEnabled,
+	hostedImageGenerationEnabled,
+} from "./image-generation-config.ts";
 import { registerHostedImageReception } from "./hosted-image-generation.ts";
 import {
 	IMAGE_GENERATION_DESCRIPTION,
@@ -28,16 +32,6 @@ import { installCodexWebSocketObserver } from "./codex-websocket.ts";
 const baseDir = dirname(fileURLToPath(import.meta.url));
 const hostedImageSkill = join(baseDir, "codex-skills", "imagegen-hosted", "SKILL.md");
 const externalImageSkill = join(baseDir, "codex-skills", "imagegen", "SKILL.md");
-
-type ExternalToolsConfig = {
-	imageGeneration?: boolean;
-};
-
-function externalImageGenerationEnabled(config: Record<string, unknown>): boolean {
-	const tools = config.externalTools;
-	return !!tools && typeof tools === "object" && !Array.isArray(tools) &&
-		(tools as ExternalToolsConfig).imageGeneration === true;
-}
 
 function experimentalWebSocketObserverEnabled(config: Record<string, unknown>): boolean {
 	const experimental = config.experimental;
@@ -75,6 +69,7 @@ export default async function codexExtension(pi: ExtensionAPI) {
 	const config = await readCodexConfig();
 	const useWebSocketObserver = experimentalWebSocketObserverEnabled(config);
 	const useExternalImageGeneration = externalImageGenerationEnabled(config);
+	const useHostedImageGeneration = hostedImageGenerationEnabled(config);
 	registerSseDump(pi);
 	const cyberWarnings = await registerCyberWarningSupport(pi);
 	const fastMode = await registerCodexFastModeSupport(pi);
@@ -102,9 +97,9 @@ export default async function codexExtension(pi: ExtensionAPI) {
 
 	pi.on("resources_discover", (_event, ctx) => {
 		if (!isCodexGpt(ctx)) return {};
-		return {
-			skillPaths: [useExternalImageGeneration ? externalImageSkill : hostedImageSkill],
-		};
+		if (useExternalImageGeneration) return { skillPaths: [externalImageSkill] };
+		if (useHostedImageGeneration) return { skillPaths: [hostedImageSkill] };
+		return {};
 	});
 
 	pi.on("session_start", (_event, ctx) => {
@@ -144,9 +139,10 @@ export default async function codexExtension(pi: ExtensionAPI) {
 		);
 		const additions = [...tools];
 		if (!hasWebSearch) additions.push({ type: "web_search" });
-		// Expose the hosted image-generation capability unless the explicit
-		// external namespace tool is enabled. Both forms in one request conflict.
-		if (isCodexGpt(ctx) && !useExternalImageGeneration && !hasHostedImageGeneration) {
+		// Expose the hosted image-generation capability unless it is disabled or
+		// the explicit external namespace tool is enabled. Both forms in one
+		// request conflict.
+		if (useHostedImageGeneration && !useExternalImageGeneration && !hasHostedImageGeneration) {
 			additions.push({ type: "image_generation" });
 		}
 

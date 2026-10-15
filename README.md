@@ -101,6 +101,7 @@ or apply any other feature in this README to Anthropic models.
 - `rate-limits.ts`: quota header/event parsing
 - `quota-display.ts`: footer status and detailed quota command
 - `hosted-image-generation.ts`: hosted image SSE reception, metadata parsing, and persistence
+- `image-generation-config.ts`: hosted/external image-generation enablement decisions
 - `sse-dump.ts`: opt-in JSONL dump of response headers and parsed stream events for all providers
 - `external-tools/`: opt-in local image-generation proxy tools
 - `providers/codex-gateway.ts`: API-key gateway provider
@@ -120,6 +121,9 @@ The extension stores its settings in
   "experimental": {
     "codexWebSocketObserver": false
   },
+  "hostedTools": {
+    "imageGeneration": true
+  },
   "externalTools": {
     "imageGeneration": false
   }
@@ -130,6 +134,9 @@ The extension stores its settings in
 - `serviceTier`: `default` (default) or `priority`.
 - `experimental.codexWebSocketObserver`: enables the experimental, read-only
   WebSocket observer; it is disabled by default.
+- `hostedTools.imageGeneration`: injects the provider-hosted image-generation
+  tool into Codex requests; enabled by default. Set it to `false` to disable
+  image generation entirely.
 - `externalTools.imageGeneration`: enables the local `image_gen` fallback;
   disabled by default. This is mutually exclusive with the hosted image tool.
 
@@ -221,6 +228,20 @@ by default. Enable it explicitly in `<Pi agent directory>/codex-gateway.json`:
   }
 }
 ```
+
+To disable image generation entirely, keep `externalTools.imageGeneration` off
+and turn the hosted tool off as well:
+
+```json
+{
+  "hostedTools": {
+    "imageGeneration": false
+  }
+}
+```
+
+With both disabled, no image-generation tool is exposed to the model and the
+image-generation skill is not registered.
 
 When enabled, the original `image_gen` tool and `codex-skills/imagegen/SKILL.md`
 are registered as an explicit fallback. It uses the Responses image tool for
