@@ -24,7 +24,6 @@ import { registerCyberWarningSupport } from "./cyber-warning.ts";
 import { registerCodexFastModeSupport } from "./fast-mode.ts";
 import { codexGatewayProvider } from "./providers/codex-gateway.ts";
 import { registerOpenAICodexSupport } from "./providers/openai-codex.ts";
-import { registerQuotaDisplaySupport } from "./quota-display.ts";
 import { registerAnthropicFallbackNotice } from "./anthropic-fallback.ts";
 import { registerSseDump } from "./sse-dump.ts";
 import { installCodexWebSocketObserver } from "./codex-websocket.ts";
@@ -73,12 +72,10 @@ export default async function codexExtension(pi: ExtensionAPI) {
 	registerSseDump(pi);
 	const cyberWarnings = await registerCyberWarningSupport(pi);
 	const fastMode = await registerCodexFastModeSupport(pi);
-	const quotaDisplay = registerQuotaDisplaySupport(pi);
 	registerAnthropicFallbackNotice(pi);
 	const hostedImages = registerHostedImageReception(pi);
 	const handleBodyEvent = (event: Record<string, unknown>): void => {
 		cyberWarnings.handleBodyEvent(event);
-		quotaDisplay.handleBodyEvent(event);
 		hostedImages.handleBodyEvent(event);
 	};
 	const cleanupWebSocketObserver = useWebSocketObserver

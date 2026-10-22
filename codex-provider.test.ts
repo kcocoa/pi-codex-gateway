@@ -5,6 +5,8 @@ import {
 	isAnthropicProvider,
 	isCodexGpt,
 	isOpenAICodexGpt,
+	isXai,
+	isXaiProvider,
 } from "./codex-provider.ts";
 
 function context(provider: string, id = "gpt-5.4") {
@@ -29,5 +31,12 @@ describe("Codex provider matching", () => {
 		expect(isAnthropicProvider("codex-gateway")).toBe(false);
 		expect(isAnthropic(context("anthropic", "claude-sonnet-4-5"))).toBe(true);
 		expect(isAnthropic(context("openai-codex"))).toBe(false);
+	});
+
+	it("identifies the built-in xAI provider", () => {
+		expect(isXaiProvider("xai")).toBe(true);
+		expect(isXaiProvider("openai")).toBe(false);
+		expect(isXai(context("xai", "grok-4.6"))).toBe(true);
+		expect(isXai(context("openai-codex"))).toBe(false);
 	});
 });

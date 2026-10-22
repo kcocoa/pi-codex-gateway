@@ -8,6 +8,7 @@ import type { CyberWarningAction } from "./cyber-warning-policy.ts";
 const agentDir = await mkdtemp(join(import.meta.dir, ".cyber-warning-test-"));
 mock.module("@earendil-works/pi-coding-agent", () => ({
 	getAgentDir: () => agentDir,
+	readStoredCredential: () => undefined,
 }));
 
 const { registerCyberWarningSupport } = await import("./cyber-warning.ts");

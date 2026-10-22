@@ -7,10 +7,10 @@ providers:
 - `openai-codex`: augments Pi's built-in ChatGPT OAuth provider.
 
 Shared features include hosted web search, image generation, cyber warnings,
-service-tier selection, and quota display.
+and service-tier selection.
 
-It also shows a quota usage bar for Pi's built-in `anthropic` provider (see
-[Quota display](#quota-display)).
+For quota and rate-limit status bar display across Codex, Anthropic, and xAI,
+pair this extension with [`pi-usage-bar`](https://github.com/kcocoa/pi-usage-bar).
 
 ## Provider behavior
 
@@ -77,14 +77,24 @@ trade-offs.
 
 ### `anthropic`
 
-Only the quota usage bar, `/anthropic:usage`, and a server-side fallback
-warning are supported. The extension is a read-only monitor for this provider:
-it reads the `anthropic-ratelimit-unified-*` headers from responses Pi already
-receives, and warns when a finished reply's `responseModel` differs from the
-selected model (Anthropic's server-side model fallback, which Pi applies but
-does not display). It does not change requests, add tools, issue extra
-requests (so the subscription plan, e.g. Pro / Max 5x / Max 20x, is not shown),
-or apply any other feature in this README to Anthropic models.
+Only a server-side fallback warning is monitored here. The extension warns
+when a finished reply's `responseModel` differs from the selected model
+(Anthropic's server-side model fallback, which Pi applies but does not
+display). For Anthropic quota usage and reset countdowns, use
+[`pi-usage-bar`](https://github.com/kcocoa/pi-usage-bar).
+
+### `xai`
+
+Only the quota usage bar and `/xai:usage` are supported. The extension does
+not change xAI requests or add tools.
+
+- Weekly SuperGrok / X Premium quota is not on response headers. When Pi has an
+  xAI OAuth credential (`/login xai`, subscription), the extension reads
+  `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`, the same
+  endpoint the Grok CLI uses. The result is cached for 5 minutes. An API key
+  has no weekly window. The token is sent only as `Authorization: Bearer` and
+  is never written to the footer or notifications. The request also sends
+  `x-xai-token-auth: xai-grok-cli`, which the proxy uses to route OAuth.
 
 ## Layout
 
@@ -98,8 +108,6 @@ or apply any other feature in this README to Anthropic models.
 - `cyber-warning-policy.ts`: testable warning decisions and deduplication keys
 - `cyber-warning.ts`: warning policy integration and persistent setting
 - `fast-mode.ts`: persistent `/codex:fast` command
-- `rate-limits.ts`: quota header/event parsing
-- `quota-display.ts`: footer status and detailed quota command
 - `hosted-image-generation.ts`: hosted image SSE reception, metadata parsing, and persistence
 - `image-generation-config.ts`: hosted/external image-generation enablement decisions
 - `sse-dump.ts`: opt-in JSONL dump of response headers and parsed stream events for all providers
@@ -176,34 +184,9 @@ shows `fast⚡`.
 
 ## Quota display
 
-Quota data is parsed from normal response headers and optional SSE
-response-body events:
-
-- Codex: `x-<limit>-primary-*` and `x-<limit>-secondary-*`;
-  `x-codex-plan-type`, `x-codex-credits-*`, `x-codex-active-limit`, promo,
-  and reached-type headers; `codex.rate_limits` SSE body events.
-- Anthropic: `anthropic-ratelimit-unified-5h-*` and
-  `anthropic-ratelimit-unified-7d-*` (utilization and reset), plus
-  `anthropic-ratelimit-unified-status`. These headers are only sent for
-  subscription (OAuth) logins, not API keys.
-
-The footer shows remaining percentages and compact reset countdowns, plus the
-normalized subscription type for Codex, for example
-`pro5x 5h:82%↺3h44m 7d:54%↺5d17h` (Codex) or `5h:97%↺4h47m 7d:77%↺3d20h`
-(Anthropic). Reset countdowns contain at most two time units. When the 5h
-remaining quota drops below 10% or its reset time is under 1h, it displays the
-absolute reset time as `HH:MM` in the local timezone (e.g. `5h:8%↺14:30` or
-`5h:75%↺14:30`). Once a window's reset time has passed and no newer response
-has arrived, its percentage shows as `?` (e.g. `5h:?↺now`) instead of the
-stale value. Observed Codex plan types are normalized to `plus`, `pro5x`,
-`pro20x`, `business`, or `business pro` when recognized.
-
-Run `/codex:usage` or `/anthropic:usage` for all observed limits, reset times,
-plan type, credits, and server messages. Reset values are unix timestamps, so
-they are rendered in the local timezone with its UTC offset, for example
-`resets 2026-10-08 00:00 (UTC+08:00)`; the offset is the one in effect at the
-reset time, so DST is handled. No separate quota request is made; the display
-remains empty until a provider supplies quota data.
+Quota and rate-limit status bar display has been separated into the dedicated
+[`pi-usage-bar`](https://github.com/kcocoa/pi-usage-bar) extension. It monitors response
+headers and billing endpoints across Codex, Anthropic, and xAI.
 
 ## Hosted web search
 
