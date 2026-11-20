@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "sh scripts/typecheck.sh"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "latest",

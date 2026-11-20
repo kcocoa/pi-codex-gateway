@@ -55,11 +55,14 @@ export async function registerCodexFastModeSupport(
 		},
 		handler: async (args, ctx) => {
 			const requested = args.trim().toLowerCase();
-			if (requested && !isCodexServiceTier(requested)) {
+			if (!requested) {
+				serviceTier = serviceTier === "default" ? "priority" : "default";
+			} else if (isCodexServiceTier(requested)) {
+				serviceTier = requested;
+			} else {
 				ctx.ui.notify("Expected one of: default, priority", "error");
 				return;
 			}
-			serviceTier = requested || (serviceTier === "default" ? "priority" : "default");
 			await updateCodexConfig("serviceTier", serviceTier);
 			renderStatus(ctx);
 			ctx.ui.notify(`Codex service tier: ${serviceTier}`, "info");

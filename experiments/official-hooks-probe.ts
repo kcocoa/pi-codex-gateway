@@ -319,7 +319,7 @@ export default function officialHooksProbe(pi: ExtensionAPI): void {
 			commands: pi
 				.getCommands()
 				.map((command) => ({ name: command.name, source: command.source })),
-			activeTools: pi.getActiveTools().map((tool) => tool.name),
+			activeTools: pi.getActiveTools(),
 			allTools: pi
 				.getAllTools()
 				.map((tool) => ({ name: tool.name, sourceInfo: tool.sourceInfo })),
@@ -446,9 +446,10 @@ export default function officialHooksProbe(pi: ExtensionAPI): void {
 		record("before_agent_start", {
 			event: {
 				type: event.type,
-				promptLength: event.prompt.length,
+				messageType: event.messageType,
+				promptLength: event.messageType === "user" ? event.prompt.length : undefined,
 				systemPromptLength: event.systemPrompt.length,
-				imageCount: event.images?.length ?? 0,
+				imageCount: event.messageType === "user" ? event.images?.length ?? 0 : undefined,
 				systemPromptOptionKeys: keysOf(event.systemPromptOptions),
 			},
 			context: contextSummary(ctx),
@@ -596,7 +597,9 @@ export default function officialHooksProbe(pi: ExtensionAPI): void {
 		record("tool_call", {
 			event: {
 				type: event.type,
-				toolCall: contentBlockSummary(event.toolCall),
+				toolCallIdPresent: Boolean(event.toolCallId),
+				toolName: event.toolName,
+				inputKeys: keysOf(event.input),
 			},
 			context: contextSummary(ctx),
 		});

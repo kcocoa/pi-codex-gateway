@@ -37,6 +37,3 @@ Anthropic SSE tap or provider wrapper is needed.
 - [ ] Optional: dispatch observer callbacks via `queueMicrotask` so Pi's own
   listener runs first. Do this after the attribution work, because it delays
   the cyber-warning `ctx.abort()`.
-- [ ] Fix tsc errors that were already there: `fast-mode.ts`,
-  `experiments/official-hooks-probe.ts`, and the missing `bun` types
-  (`tsconfig.json`).

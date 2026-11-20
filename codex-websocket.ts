@@ -5,7 +5,7 @@ const INSTALL_KEY = Symbol.for("pi-codex-gateway.websocket-observer");
 
 type ObserverState = {
 	observers: Set<SseBodyEventHandler>;
-	prototype: WebSocket["prototype"];
+	prototype: typeof WebSocket.prototype;
 	originalSend: WebSocket["send"];
 	wrappedSend: WebSocket["send"];
 	/** Sockets that already have the observer listener attached. */
@@ -126,10 +126,10 @@ export function installCodexWebSocketObserver(
 
 	if (!state) {
 		const prototype = (
-			globalThis.WebSocket as unknown as { prototype?: WebSocket["prototype"] }
+			globalThis.WebSocket as unknown as { prototype?: typeof WebSocket.prototype }
 		).prototype;
-		const originalSend = prototype?.send;
-		if (typeof originalSend !== "function") return () => {};
+		if (!prototype || typeof prototype.send !== "function") return () => {};
+		const originalSend = prototype.send;
 
 		const localState: ObserverState = {
 			observers: new Set(),
