@@ -115,7 +115,7 @@ export default async function codexExtension(pi: ExtensionAPI) {
 
 		if (useWebSocketObserver) {
 			ctx.ui.notify(
-				`[pi-codex-gateway] OpenAI Codex is using ${transport} transport with the experimental WebSocket observer. Quota/usage events are observed on a best-effort basis; binary messages and exact request context are unsupported. On Bun, the observer only attaches if no Codex WebSocket connection was opened earlier in this process (Pi caches the WebSocket constructor); restart pi after enabling it if no events appear.`,
+				`[pi-codex-gateway] OpenAI Codex is using ${transport} transport with the experimental WebSocket observer. Quota/usage events are observed on a best-effort basis; binary messages and exact request context are unsupported.`,
 				"info",
 			);
 		} else {

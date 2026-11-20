@@ -132,8 +132,10 @@ Pi 会在扩展加载前缓存 WebSocket 构造函数，任何替换 `globalThis
 #### 5.2 运行时差异
 
 不同运行时的 `WebSocket.prototype.send` 可写性、事件对象和自定义 headers
-参数并不完全一致。Pi 的实现还可能通过继承原生 WebSocket 添加代理支持，因此
-需要分别测试 Bun、Node 以及代理配置。`send` 不可写时观察器静默失效
+参数并不完全一致。Pi 在 Bun 上会缓存一个继承原生 WebSocket 的代理子类，
+在 Node 上直接使用 `globalThis.WebSocket`。实测（Bun 1.4.5、Node 22.23）：
+观察器安装前缓存的子类、安装前已建立的连接（从下一次 `send()` 起）和全局
+构造函数都能被观察。代理配置未测。`send` 不可写时观察器静默失效
 （fail-open）。
 
 #### 5.3 请求与上下文关联

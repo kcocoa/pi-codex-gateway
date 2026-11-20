@@ -172,6 +172,10 @@ For active GPT models from either provider, the extension observes:
 - `response.metadata` or `codex.response.metadata` containing
   `openai_verification_recommendation: ["trusted_access_for_cyber"]`.
 
+This detection is only tested against synthetic events. It has never been
+checked against a real warning from the service, so it is not guaranteed to
+fire.
+
 Run `/codex:cyber` to choose:
 
 - `warn` (default): show the warning and continue;
