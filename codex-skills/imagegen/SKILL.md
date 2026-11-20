@@ -9,9 +9,11 @@ Use the `image_gen.imagegen` tool for this skill. It uses the active provider's 
 API: the Responses `image_generation` tool for `codex-gateway`, or the official Codex
 Images API for `openai-codex`. It is **not** a Python/CLI fallback.
 
-The tool is available only while the active model is a GPT model from either supported
-Codex provider. If the provider changes, run `/reload` to refresh provider-scoped Skill
-discovery.
+The tool is available while the active model is a GPT model from either supported
+Codex provider. When `externalTools.imageGenerationForOtherModels` is enabled, other chat
+models get it too as the flat `imagegen` tool, which generates through the configured
+`externalTools.imagePromptModel`. If the provider changes, run `/reload` to refresh
+provider-scoped Skill discovery.
 
 ## Non-negotiable rules
 

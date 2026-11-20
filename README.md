@@ -109,7 +109,7 @@ not change xAI requests or add tools.
 - `cyber-warning.ts`: warning policy integration and persistent setting
 - `fast-mode.ts`: persistent `/codex:fast` command
 - `hosted-image-generation.ts`: hosted image SSE reception, metadata parsing, and persistence
-- `image-generation-config.ts`: hosted/external image-generation enablement decisions
+- `image-generation-config.ts`: hosted/external image-generation enablement and model options
 - `sse-dump.ts`: opt-in JSONL dump of response headers and parsed stream events for all providers
 - `external-tools/`: opt-in local image-generation proxy tools
 - `providers/codex-gateway.ts`: API-key gateway provider
@@ -133,7 +133,10 @@ The extension stores its settings in
     "imageGeneration": true
   },
   "externalTools": {
-    "imageGeneration": false
+    "imageGeneration": false,
+    "imageGenerationForOtherModels": false,
+    "imagePromptModel": "codex-gateway/gpt-6.2-sol",
+    "imageModel": "gpt-image-2.6-flare"
   }
 }
 ```
@@ -147,6 +150,15 @@ The extension stores its settings in
   image generation entirely.
 - `externalTools.imageGeneration`: enables the local `image_gen` fallback;
   disabled by default. This is mutually exclusive with the hosted image tool.
+- `externalTools.imageGenerationForOtherModels`: also exposes `image_gen` while
+  the chat model is not a Codex GPT model; disabled by default.
+- `externalTools.imagePromptModel`: `provider/model-id` of the
+  `codex-gateway` or `openai-codex` model whose credentials and model ID
+  generate images for those other chat models; defaults to
+  `codex-gateway/gpt-6.2-sol`. A Codex GPT chat model always generates with
+  itself. The model must be in Pi's model catalog.
+- `externalTools.imageModel`: image model sent to either provider; defaults to
+  `gpt-image-2.6-flare`.
 
 The first two options can also be changed with `/codex:cyber` and
 `/codex:fast`. Settings not listed above are ignored by this extension.
@@ -229,6 +241,21 @@ image-generation skill is not registered.
 When enabled, the original `image_gen` tool and `codex-skills/imagegen/SKILL.md`
 are registered as an explicit fallback. It uses the Responses image tool for
 `codex-gateway` and the official Codex Images endpoints for `openai-codex`.
+
+Other chat models, such as Claude, can use the same tool when
+`imageGenerationForOtherModels` is on. The tool then calls
+`imagePromptModel` with that model's own credentials, so images still bill to
+the Codex provider. Those models see the flat `imagegen` tool: the
+`image_gen` namespace shim applies only to Codex requests.
+
+```json
+{
+  "externalTools": {
+    "imageGeneration": true,
+    "imageGenerationForOtherModels": true
+  }
+}
+```
 
 This uses a deliberately tricky compatibility shim: Pi registers a flat local
 `imagegen` tool, then `before_provider_request` rewrites its model-facing schema

@@ -9,6 +9,7 @@ import { isCodexGpt, isOpenAICodexGpt } from "./codex-provider.ts";
 import { readCodexConfig } from "./codex-config.ts";
 import {
 	externalImageGenerationEnabled,
+	externalImageGenerationOptions,
 	hostedImageGenerationEnabled,
 } from "./image-generation-config.ts";
 import { registerHostedImageReception } from "./hosted-image-generation.ts";
@@ -69,6 +70,7 @@ export default async function codexExtension(pi: ExtensionAPI) {
 	const useWebSocketObserver = experimentalWebSocketObserverEnabled(config);
 	const useExternalImageGeneration = externalImageGenerationEnabled(config);
 	const useHostedImageGeneration = hostedImageGenerationEnabled(config);
+	const externalImageOptions = externalImageGenerationOptions(config);
 	registerSseDump(pi);
 	const cyberWarnings = await registerCyberWarningSupport(pi);
 	const fastMode = await registerCodexFastModeSupport(pi);
@@ -87,14 +89,16 @@ export default async function codexExtension(pi: ExtensionAPI) {
 	registerOpenAICodexSupport(pi, handleBodyEvent);
 
 	if (useExternalImageGeneration) {
-		registerImageGeneration(pi);
-		pi.on("session_start", (_event, ctx) => syncImageGenerationTool(pi, ctx));
-		pi.on("model_select", (_event, ctx) => syncImageGenerationTool(pi, ctx));
+		registerImageGeneration(pi, externalImageOptions);
+		pi.on("session_start", (_event, ctx) => syncImageGenerationTool(pi, ctx, externalImageOptions));
+		pi.on("model_select", (_event, ctx) => syncImageGenerationTool(pi, ctx, externalImageOptions));
 	}
 
 	pi.on("resources_discover", (_event, ctx) => {
+		if (useExternalImageGeneration && (isCodexGpt(ctx) || externalImageOptions.forOtherModels)) {
+			return { skillPaths: [externalImageSkill] };
+		}
 		if (!isCodexGpt(ctx)) return {};
-		if (useExternalImageGeneration) return { skillPaths: [externalImageSkill] };
 		if (useHostedImageGeneration) return { skillPaths: [hostedImageSkill] };
 		return {};
 	});

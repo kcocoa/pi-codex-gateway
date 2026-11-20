@@ -1,8 +1,10 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, extname, join, resolve } from "node:path";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { isCodexGpt, isOpenAICodexGpt } from "../codex-provider.ts";
+import { isCodexGpt, isCodexProvider, OPENAI_CODEX_PROVIDER_ID } from "../codex-provider.ts";
+import type { ExternalImageGenerationOptions } from "../image-generation-config.ts";
 
 export const IMAGE_GENERATION_TOOL_NAME = "imagegen";
 export const IMAGE_GENERATION_NAMESPACE = "image_gen";
@@ -93,7 +95,6 @@ type CodexImagesPayload = {
 	error?: unknown;
 };
 
-const OPENAI_CODEX_IMAGE_MODEL = "gpt-image-2";
 const OPENAI_CODEX_MAX_IMAGES = 5;
 const OPENAI_AUTH_CLAIM = "https://api.openai.com/auth";
 
@@ -241,8 +242,12 @@ function decodeImageResult(
 	};
 }
 
-function buildImageTool(params: ImageGenerationParams, format: "png" | "jpeg" | "webp") {
-	const tool: Record<string, unknown> = { ...IMAGE_GENERATION_TOOL };
+function buildImageTool(
+	params: ImageGenerationParams,
+	format: "png" | "jpeg" | "webp",
+	imageModel: string,
+) {
+	const tool: Record<string, unknown> = { ...IMAGE_GENERATION_TOOL, model: imageModel };
 	for (const key of ["action", "size", "quality", "background"] as const) {
 		const value = params[key];
 		if (value !== undefined) tool[key] = value;
@@ -289,6 +294,7 @@ async function callOpenAICodexImageGeneration(
 	authHeaders: Record<string, string>,
 	params: ImageGenerationParams,
 	inputImages: Array<Record<string, string>>,
+	imageModel: string,
 	turnId: string,
 	signal?: AbortSignal,
 ): Promise<{ outputs: ImageOutput[]; responseId?: string }> {
@@ -301,7 +307,7 @@ async function callOpenAICodexImageGeneration(
 	}
 	const requestBody: Record<string, unknown> = {
 		prompt: params.prompt,
-		model: OPENAI_CODEX_IMAGE_MODEL,
+		model: imageModel,
 	};
 	for (const key of ["background", "quality", "size"] as const) {
 		const value = params[key];
@@ -354,16 +360,29 @@ async function callOpenAICodexImageGeneration(
 	};
 }
 
+/** A Codex GPT chat model generates with itself; other chat models use `imagePromptModel`. */
+function imageGenerationModel(
+	ctx: ExtensionContext,
+	options: ExternalImageGenerationOptions,
+): Model<Api> {
+	if (ctx.model && isCodexGpt(ctx)) return ctx.model;
+	const promptModel = options.promptModel;
+	const model = ctx.modelRegistry.find(promptModel.provider, promptModel.id);
+	if (!model || !isCodexProvider(model.provider)) {
+		throw new Error(`externalTools.imagePromptModel must be a codex-gateway or openai-codex model: ${promptModel.provider}/${promptModel.id}`);
+	}
+	return model;
+}
+
 async function callImageGeneration(
 	ctx: ExtensionContext,
+	options: ExternalImageGenerationOptions,
 	params: ImageGenerationParams,
 	turnId: string,
 	signal?: AbortSignal,
 ): Promise<{ outputs: ImageOutput[]; responseId?: string }> {
-	const model = ctx.model;
-	if (!model || !isCodexGpt(ctx)) {
-		throw new Error("image_gen is only available with a Codex GPT model");
-	}
+	const model = imageGenerationModel(ctx, options);
+	const openAICodex = model.provider === OPENAI_CODEX_PROVIDER_ID;
 
 	const requestAuth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 	if (!requestAuth.ok) throw new Error(requestAuth.error);
@@ -382,7 +401,7 @@ async function callImageGeneration(
 	).replace(/\/+$/, "");
 	const format = outputFormatFor(params);
 	const explicitImages = params.image_paths ?? [];
-	const imageLimit = isOpenAICodexGpt(ctx) ? OPENAI_CODEX_MAX_IMAGES : 16;
+	const imageLimit = openAICodex ? OPENAI_CODEX_MAX_IMAGES : 16;
 	if (explicitImages.length > imageLimit) {
 		throw new Error(`${model.provider} image generation supports at most ${imageLimit} input images`);
 	}
@@ -396,9 +415,18 @@ async function callImageGeneration(
 			? []
 			: latestConversationImages(ctx).slice(-conversationImageCount);
 
-	if (isOpenAICodexGpt(ctx)) {
+	if (openAICodex) {
 		if (!apiKey) throw new Error("OpenAI Codex image generation requires OAuth authentication");
-		return callOpenAICodexImageGeneration(baseUrl, apiKey, headers, params, inputImages, turnId, signal);
+		return callOpenAICodexImageGeneration(
+			baseUrl,
+			apiKey,
+			headers,
+			params,
+			inputImages,
+			options.imageModel,
+			turnId,
+			signal,
+		);
 	}
 
 	const input = inputImages.length > 0
@@ -414,7 +442,7 @@ async function callImageGeneration(
 	const requestBody = {
 		model: model.id,
 		input,
-		tools: [buildImageTool(params, format)],
+		tools: [buildImageTool(params, format, options.imageModel)],
 		tool_choice: { type: "image_generation" },
 		stream: false,
 		store: false,
@@ -465,7 +493,10 @@ async function callImageGeneration(
 	return { outputs: generated, responseId: body.id };
 }
 
-export function registerImageGeneration(pi: ExtensionAPI): void {
+export function registerImageGeneration(
+	pi: ExtensionAPI,
+	options: ExternalImageGenerationOptions,
+): void {
 	pi.registerTool({
 		name: IMAGE_GENERATION_TOOL_NAME,
 		label: "Image Generation",
@@ -485,7 +516,7 @@ export function registerImageGeneration(pi: ExtensionAPI): void {
 				use_conversation_images: input.num_last_images_to_include !== undefined,
 				conversation_image_count: input.num_last_images_to_include,
 			};
-			const result = await callImageGeneration(ctx, params, toolCallId, signal);
+			const result = await callImageGeneration(ctx, options, params, toolCallId, signal);
 			const format = outputFormatFor(params);
 			const firstPath = outputPathFor(ctx, params, format);
 			const paths: string[] = [];
@@ -516,8 +547,12 @@ export function registerImageGeneration(pi: ExtensionAPI): void {
 	});
 }
 
-export function syncImageGenerationTool(pi: ExtensionAPI, ctx: ExtensionContext): void {
+export function syncImageGenerationTool(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	options: ExternalImageGenerationOptions,
+): void {
 	const active = pi.getActiveTools().filter((name) => name !== IMAGE_GENERATION_TOOL_NAME);
-	if (isCodexGpt(ctx)) active.push(IMAGE_GENERATION_TOOL_NAME);
+	if (isCodexGpt(ctx) || options.forOtherModels) active.push(IMAGE_GENERATION_TOOL_NAME);
 	pi.setActiveTools([...new Set(active)]);
 }
