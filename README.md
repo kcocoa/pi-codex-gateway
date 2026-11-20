@@ -105,6 +105,7 @@ not change xAI requests or add tools.
 - `sse-tap.ts`: provider-agnostic SSE response-body observation
 - `codex-sse.ts`: Codex terminal-event binding for the SSE tap
 - `codex-signals.ts`: server-model and cyber recommendation parsing
+- `codex-citations.ts`: raw ChatGPT citation markers to Markdown links
 - `cyber-warning-policy.ts`: testable warning decisions and deduplication keys
 - `cyber-warning.ts`: warning policy integration and persistent setting
 - `fast-mode.ts`: persistent `/codex:fast` command

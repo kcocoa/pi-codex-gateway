@@ -26,6 +26,7 @@ import { registerCodexFastModeSupport } from "./fast-mode.ts";
 import { codexGatewayProvider } from "./providers/codex-gateway.ts";
 import { registerOpenAICodexSupport } from "./providers/openai-codex.ts";
 import { registerAnthropicFallbackNotice } from "./anthropic-fallback.ts";
+import { registerCodexCitationLinks } from "./codex-citations.ts";
 import { registerSseDump } from "./sse-dump.ts";
 import { installCodexWebSocketObserver } from "./codex-websocket.ts";
 
@@ -75,6 +76,7 @@ export default async function codexExtension(pi: ExtensionAPI) {
 	const cyberWarnings = await registerCyberWarningSupport(pi);
 	const fastMode = await registerCodexFastModeSupport(pi);
 	registerAnthropicFallbackNotice(pi);
+	registerCodexCitationLinks(pi);
 	const hostedImages = registerHostedImageReception(pi);
 	const handleBodyEvent = (event: Record<string, unknown>): void => {
 		cyberWarnings.handleBodyEvent(event);
