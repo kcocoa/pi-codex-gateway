@@ -422,11 +422,19 @@ async function callImageGeneration(
 		params.conversation_image_count ?? imageLimit,
 		imageLimit,
 	);
-	const inputImages = explicitImages.length > 0
-		? await Promise.all(explicitImages.map((path) => imagePathToInput(path, ctx.cwd)))
-		: params.use_conversation_images === false
-			? []
-			: latestConversationImages(ctx).slice(-conversationImageCount);
+	let inputImages: Array<Record<string, string>> = [];
+	if (explicitImages.length > 0) {
+		inputImages = await Promise.all(explicitImages.map((path) => imagePathToInput(path, ctx.cwd)));
+	} else if (params.use_conversation_images) {
+		// Fail instead of generating without the images the model believes it sent.
+		const available = latestConversationImages(ctx);
+		if (available.length < conversationImageCount) {
+			throw new Error(
+				`num_last_images_to_include requested ${conversationImageCount} image(s), but the latest user message has only ${available.length}. Use referenced_image_paths for images with a local path.`,
+			);
+		}
+		inputImages = available.slice(-conversationImageCount);
+	}
 
 	if (openAICodex) {
 		if (!apiKey) throw new Error("OpenAI Codex image generation requires OAuth authentication");
@@ -526,8 +534,9 @@ export function registerImageGeneration(
 			const params: ImageGenerationParams = {
 				...input,
 				image_paths: input.referenced_image_paths,
-				use_conversation_images: input.num_last_images_to_include !== undefined,
-				conversation_image_count: input.num_last_images_to_include,
+				// Codex models send null for an unused nullable field.
+				use_conversation_images: input.num_last_images_to_include != null,
+				conversation_image_count: input.num_last_images_to_include ?? undefined,
 				// Like Codex, always state the background so the model's choice is explicit.
 				background: input.transparent_background ? "transparent" : "opaque",
 			};
