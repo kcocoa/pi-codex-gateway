@@ -544,6 +544,7 @@ export function registerImageGeneration(
 			const format = outputFormatFor(params);
 			const firstPath = outputPathFor(ctx, params, format);
 			const paths: string[] = [];
+			const promptPaths: string[] = [];
 			const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [];
 
 			for (const [index, output] of result.outputs.entries()) {
@@ -555,16 +556,36 @@ export function registerImageGeneration(
 				await writeFile(outputPath, Buffer.from(output.data, "base64"));
 				output.path = outputPath;
 				paths.push(outputPath);
+				const promptPath = `${outputPath.slice(0, outputPath.length - extname(outputPath).length)}.prompt.txt`;
+				const revised = output.revisedPrompt
+					? `\n--- Revised prompt used for generation ---\n${output.revisedPrompt}\n`
+					: "";
+				await writeFile(promptPath, `${params.prompt}\n${revised}`);
+				promptPaths.push(promptPath);
 				content.push({ type: "image", data: output.data, mimeType: output.mimeType });
 			}
 
-			content.unshift({ type: "text", text: `Generated image${paths.length > 1 ? "s" : ""}:\n${paths.join("\n")}` });
+			// The Responses path lets the prompt model rewrite the prompt, e.g. replacing
+			// named characters with original ones; show the model what was drawn.
+			const revisedPrompts = result.outputs
+				.map((output) => output.revisedPrompt)
+				.filter((prompt): prompt is string => !!prompt);
+			const revisedText = revisedPrompts
+				.map((prompt, index) => `\n\nRevised prompt used for generation${revisedPrompts.length > 1 ? ` ${index + 1}` : ""}:\n${prompt}`)
+				.join("");
+			// Output hint adapted from Codex's image_gen (ext/image-generation/src/artifact.rs).
+			const hint = "\n\nIf you need to use a generated image at another path, copy it and leave the original in place unless the user explicitly asks you to delete it.\nThe generated image is already displayed to the user. There is no need to render it in the final response as a Markdown image or file link.";
+			content.unshift({
+				type: "text",
+				text: `Generated image${paths.length > 1 ? "s" : ""}:\n${paths.join("\n")}\nPrompt saved to:\n${promptPaths.join("\n")}${revisedText}${hint}`,
+			});
 			return {
 				content,
 				details: {
 					paths,
+					promptPaths,
 					responseId: result.responseId,
-					revisedPrompts: result.outputs.map((output) => output.revisedPrompt).filter(Boolean),
+					revisedPrompts,
 				},
 			};
 		},

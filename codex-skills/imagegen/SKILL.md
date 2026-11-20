@@ -24,9 +24,10 @@ provider-scoped Skill discovery.
 - Do not substitute SVG, HTML/CSS, canvas, or placeholders when the user asked for a
   raster visual. Conversely, prefer repo-native vector/code assets for an established
   icon set, logo system, diagram, or UI component.
-- Do not overwrite an existing image unless the user explicitly requests replacement.
-  `image_gen.imagegen` defaults to a versioned sibling filename when needed.
-- Report each final path and the prompt actually sent.
+- `image_gen.imagegen` has no destination-path argument. If a specific location is needed,
+  generate first, then copy the selected output there and leave the original in place.
+- Report each final path. The tool saves the prompt beside each image, so point to that
+  file instead of pasting a long prompt.
 
 ## Output locations
 
@@ -44,6 +45,9 @@ For normal persisted sessions, this is typically:
 
 This mirrors Pi's session layout instead of Codex's `$CODEX_HOME/generated_images`.
 
+Each image `<name>.png` gets `<name>.prompt.txt` beside it with the prompt that was sent,
+followed by the revised prompt when the provider rewrote it.
+
 For ephemeral `pi --no-session` runs, `getSessionFile()` is undefined and the default
 output directory is instead:
 
@@ -51,14 +55,10 @@ output directory is instead:
 /tmp/generated_images/
 ```
 
-When the user requests a project asset or names a destination, pass an explicit
-`output_path` relative to the project cwd (or absolute when requested), for example:
-
-```text
-assets/hero/coffee-mug.png
-```
-
-Never leave an asset referenced by project code only in the session image directory.
+When the user names a destination, copy the selected output there. When the image is
+meant for the current project, copy the final selected image into the workspace and
+update any consuming code or references before finishing. Never leave an asset
+referenced by project code only in the session image directory.
 For preview or ideation work, keep the default session image path and let the tool
 return the image inline.
 
@@ -107,14 +107,14 @@ a reference unless the user clearly asks to alter it.
    required invariants, avoid list, and image roles.
 4. Shape the user request into a clear production prompt. Preserve a detailed user
    prompt; add restrained composition/detail only when the original is generic.
-5. Call `image_gen.imagegen` directly. For project-bound output, pass `output_path` before
-   generating; do not generate into the session directory and move it later unless a
-   destination is still unknown.
+5. Call `image_gen.imagegen` directly. For project-bound output, copy the selected image
+   into the workspace afterwards.
 6. Inspect the returned image and validate subject, style, composition, exact text,
    constraints, and unwanted artifacts.
 7. Iterate with a single targeted change. Repeat edit invariants on every iteration.
-8. State the final output path(s), whether this was generation or editing, and the
-   final prompt.
+8. State the final output path(s) and whether this was generation or editing. If the
+   tool result shows a revised prompt that drops part of the request, such as a named
+   character, say so.
 
 ## Transparent backgrounds
 

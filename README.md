@@ -266,8 +266,10 @@ the same request because the provider rejects that combination.
 
 Generated hosted files are saved by default under the current Pi session's
 `generated_images/` directory. Ephemeral `--no-session` runs use
-`/tmp/generated_images/`. The external proxy also supports explicit
-`output_path`, local reference images, and overwrite protection.
+`/tmp/generated_images/`. Like Codex's tool, the external proxy has no
+destination-path argument: the model copies images elsewhere when needed. It
+also saves each image's prompt, and any revised prompt, as
+`<image name>.prompt.txt` beside it.
 
 For protocol debugging, set `SSE_DUMP_PATH` (legacy `CODEX_SSE_DUMP_PATH` also
 works) to an explicit JSONL path. It covers every provider via Pi's
