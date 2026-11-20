@@ -81,21 +81,16 @@ return the image inline.
 
 ## Tool inputs
 
-`image_gen` accepts these useful fields:
+`image_gen.imagegen` accepts:
 
 - `prompt` — required final image specification.
-- `action` — `generate`, `edit`, or `auto`; use `edit` when preserving input content.
-- `image_paths` — local image paths for edit targets or visual references, up to 16
-  with `codex-gateway` or 5 with `openai-codex`. Explicit paths take precedence over
-  attached conversation images.
-- `use_conversation_images` — defaults to true when `image_paths` is omitted. Set it
-  false if an image attached to the latest user message is unrelated.
-- `size`, `quality`, `background`, `output_format`, `output_compression` — native tool
-  options. Use `output_compression` only with JPEG or WebP, never with PNG.
-  `openai-codex` currently supports PNG output only and does not accept
-  `output_compression`. Only specify these fields when the user requires a constraint.
-- `output_path` — explicit project or user-specified destination.
-- `overwrite` — set true only when the user explicitly asks to replace that path.
+- `transparent_background` — true when the request calls for a transparent background,
+  background removal, or a cutout; false (the default) otherwise. For edits, preserve
+  existing transparency unless the user asks to change it.
+- `referenced_image_paths` — up to 5 local image paths for edit targets or visual
+  references.
+- `num_last_images_to_include` — the 1–5 most recent conversation images, for targets
+  without a local path. Never combine it with `referenced_image_paths`.
 
 Label the role of every input image in the prompt: `Image 1: edit target`,
 `Image 2: style reference`, or `Image 3: subject to insert`. Treat a supplied image as
@@ -123,49 +118,8 @@ a reference unless the user clearly asks to alter it.
 
 ## Transparent backgrounds
 
-Use the native tool first; never switch to a CLI path.
-
-### Simple opaque subject: chroma-key workflow
-
-For simple opaque subjects, request a flat removable background in the `prompt`:
-
-```text
-Create the requested subject on a perfectly flat solid #00ff00 chroma-key background
-for background removal. The background must be one uniform color with no shadows,
-gradients, texture, reflections, floor plane, or lighting variation. Keep the subject
-fully separated with crisp edges and generous padding. Do not use #00ff00 in the
-subject. No cast shadow, contact shadow, reflection, watermark, or text unless
-explicitly requested.
-```
-
-Then remove it with the helper bundled beside this Skill. Resolve `<skill-dir>` as the
-directory containing this `SKILL.md`:
-
-```bash
-python <skill-dir>/scripts/remove_chroma_key.py \
-  --input <source.png> \
-  --out <final.png> \
-  --auto-key border \
-  --soft-matte \
-  --transparent-threshold 12 \
-  --opaque-threshold 220 \
-  --despill
-```
-
-Validate alpha output: transparent corners, an alpha channel, no obvious halo/key-color
-fringe, and plausible subject coverage. Retry once with `--edge-contract 1` only for a
-thin fringe.
-
-### Native transparency
-
-When the user explicitly requests true/native transparency, call `image_gen.imagegen` with
-`background: "transparent"` and PNG output (`codex-gateway` may also support WebP).
-Some hosted image models may reject that option. If so, explain the limitation and offer
-the chroma-key workflow above; do not fall back to the bundled CLI.
-
-For hair, fur, feathers, smoke, glass, liquids, translucent materials, reflective
-objects, or soft shadows, explain that chroma-key removal may have imperfect edges and
-ask whether a simplified cutout is acceptable before proceeding.
+Set `transparent_background: true` and preserve the generated alpha channel. Do not fall
+back to a chroma-key workflow or the bundled CLI.
 
 ## Prompt construction
 
